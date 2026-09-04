@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Сборка и релизы
+build/
+dist/
+release/
+release2/
+current/
+*.spec.bak
+*.msi
+
+# Логи и локальные данные
+*.log
+app.log
+
+# WARP/SOCKS — содержит личные ключи, не публиковать
+warp-socks/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+Desktop.ini
