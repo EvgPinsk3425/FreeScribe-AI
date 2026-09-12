@@ -9,3 +9,6 @@ pyinstaller
 hf_xet
 httpx[socks]
 socksio
+onnx-asr[cpu,hub]
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"

@@ -1,31 +1,27 @@
 """
-F1 Whisper Typing — офлайн голосовой набор текста для Windows.
+F1 Whisper Typing — офлайн голосовой набор для Windows и macOS.
 
-Сборка: build.bat  →  dist\\F1WhisperTyping.exe
+Windows: start.bat или F1WhisperTyping.exe
+macOS:   ./start.command  или  python3 main.py
 """
 
-import ctypes
 import logging
 import os
 import sys
 from multiprocessing import freeze_support
 from pathlib import Path
 
-MUTEX_NAME = "Local\\F1WhisperTyping"
-_mutex_handle = None
+from compat import ensure_single_instance, missing_module_hint, show_message, user_data_dir
 
 
 def _setup_logging() -> None:
     format_str = "%(asctime)s %(levelname)s %(message)s"
     handlers = []
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        folder = Path(appdata) / "F1WhisperTyping"
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-            handlers.append(logging.FileHandler(folder / "app.log", encoding="utf-8"))
-        except OSError:
-            pass
+    try:
+        folder = user_data_dir()
+        handlers.append(logging.FileHandler(folder / "app.log", encoding="utf-8"))
+    except OSError:
+        pass
     if not getattr(sys, "frozen", False):
         try:
             handlers.append(
@@ -43,42 +39,35 @@ def _setup_logging() -> None:
     )
 
 
-def _message(text: str, error: bool = False) -> None:
-    flags = 0x00000010 if error else 0x00000040
-    ctypes.windll.user32.MessageBoxW(None, text, "F1 Whisper Typing", flags)
-
-
-def _ensure_single_instance() -> bool:
-    global _mutex_handle
-    kernel32 = ctypes.windll.kernel32
-    kernel32.SetLastError(0)
-    _mutex_handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
-    return kernel32.GetLastError() != 183
-
-
 def main() -> None:
     _setup_logging()
     log = logging.getLogger("whisper_typing")
     log.info(
-        "start frozen=%s cwd=%s appdata=%s",
+        "start frozen=%s cwd=%s platform=%s",
         getattr(sys, "frozen", False),
         os.getcwd(),
-        os.environ.get("APPDATA"),
+        sys.platform,
     )
 
     def _excepthook(exc_type, exc, tb):
         log.error("uncaught exception", exc_info=(exc_type, exc, tb))
-        _message(str(exc), error=True)
+        show_message(str(exc), error=True)
 
     sys.excepthook = _excepthook
 
-    if not _ensure_single_instance():
+    if not ensure_single_instance():
         log.info("already running")
-        _message("Программа уже запущена.\nИконка в трее — возле часов, иногда в скрытых значках.")
+        show_message("Программа уже запущена.\nИконка — в трее (Windows) или в строке меню (Mac).")
         return
 
     log.info("importing app")
-    from tray_app import WhisperTrayApp
+    try:
+        from tray_app import WhisperTrayApp
+    except ModuleNotFoundError as exc:
+        missing = getattr(exc, "name", None) or str(exc)
+        log.exception("missing module")
+        show_message(missing_module_hint(str(missing)), error=True)
+        return
 
     log.info("imports done")
     try:
@@ -87,7 +76,7 @@ def main() -> None:
         app.run()
     except Exception as exc:
         log.exception("fatal")
-        _message(f"Не удалось запустить:\n{exc}", error=True)
+        show_message(f"Не удалось запустить:\n{exc}", error=True)
         raise
 
 

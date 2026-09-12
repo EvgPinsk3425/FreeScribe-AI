@@ -54,6 +54,8 @@ def find_wireproxy() -> tuple[Path, Path] | None:
 
 def ensure_local_socks() -> str:
     """Запускает wireproxy при необходимости. Возвращает URL или пустую строку."""
+    if sys.platform != "win32":
+        return ""
     if port_open():
         logger.info("socks already listening %s", SOCKS_URL)
         return SOCKS_URL

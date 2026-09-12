@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 
+from compat import user_data_dir
+
 APP_NAME = "F1WhisperTyping"
+APP_VERSION = "2.0"
+APP_UPDATED = "12.09.2026 08:51"
 
 HOTKEY_OPTIONS = [
     ("f1", "F1", 0x70, 0),
@@ -33,12 +40,127 @@ HOTKEY_LABELS = {hid: label for hid, label, _vk, _mods in HOTKEY_OPTIONS}
 HOTKEY_VK = {hid: vk for hid, _label, vk, _mods in HOTKEY_OPTIONS}
 HOTKEY_MODS = {hid: mods for hid, _label, _vk, mods in HOTKEY_OPTIONS}
 
+# Шаблонный каталог. Новая модель = ещё один словарь ниже.
+# engine: faster-whisper (CTranslate2) или onnx-asr (GigaAM Сбера и др.).
+MODEL_CATALOG = [
+    {
+        "id": "large-v3-turbo",
+        "group": "Whisper",
+        "label": "turbo",
+        "hint": "быстро и точно, рекомендуется",
+        "engine": "faster-whisper",
+        "source": "large-v3-turbo",
+        "repo": "Systran/faster-whisper-large-v3-turbo",
+        "hf_folders": [
+            "models--Systran--faster-whisper-large-v3-turbo",
+            "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+            "models--dropbox-dash--faster-whisper-large-v3-turbo",
+        ],
+        "cache_glob": "model.bin",
+        "size_bytes": 2_000_000_000,
+        "size_label": "~1.6 ГБ",
+        "recommended": True,
+    },
+    {
+        "id": "small",
+        "group": "Whisper",
+        "label": "small",
+        "hint": "легче, менее точно",
+        "engine": "faster-whisper",
+        "source": "small",
+        "repo": "Systran/faster-whisper-small",
+        "hf_folders": ["models--Systran--faster-whisper-small"],
+        "cache_glob": "model.bin",
+        "size_bytes": 800_000_000,
+        "size_label": "~500 МБ",
+    },
+    {
+        "id": "base",
+        "group": "Whisper",
+        "label": "base",
+        "hint": "самая быстрая Whisper",
+        "engine": "faster-whisper",
+        "source": "base",
+        "repo": "Systran/faster-whisper-base",
+        "hf_folders": ["models--Systran--faster-whisper-base"],
+        "cache_glob": "model.bin",
+        "size_bytes": 300_000_000,
+        "size_label": "~150 МБ",
+    },
+    {
+        "id": "medium",
+        "group": "Whisper",
+        "label": "medium",
+        "hint": "точнее small, медленнее",
+        "engine": "faster-whisper",
+        "source": "medium",
+        "repo": "Systran/faster-whisper-medium",
+        "hf_folders": ["models--Systran--faster-whisper-medium"],
+        "cache_glob": "model.bin",
+        "size_bytes": 2_000_000_000,
+        "size_label": "~1.5 ГБ",
+    },
+    {
+        "id": "large-v3",
+        "group": "Whisper",
+        "label": "large-v3",
+        "hint": "максимум качества, на CPU очень медленно",
+        "engine": "faster-whisper",
+        "source": "large-v3",
+        "repo": "Systran/faster-whisper-large-v3",
+        "hf_folders": ["models--Systran--faster-whisper-large-v3"],
+        "cache_glob": "model.bin",
+        "size_bytes": 4_000_000_000,
+        "size_label": "~3 ГБ",
+    },
+    {
+        "id": "gigaam-v3-e2e-rnnt",
+        "group": "Сбер",
+        "label": "GigaAM v3 RNN-T",
+        "hint": "лучший русский, с пунктуацией",
+        "engine": "onnx-asr",
+        "source": "gigaam-v3-e2e-rnnt",
+        "repo": "istupakov/gigaam-v3-onnx",
+        "hf_folders": ["models--istupakov--gigaam-v3-onnx"],
+        "allow_patterns": [
+            "config.json",
+            "v3_e2e_rnnt.yaml",
+            "v3_e2e_rnnt_vocab.txt",
+            "v3_e2e_rnnt_encoder.int8.onnx",
+            "v3_e2e_rnnt_decoder.int8.onnx",
+            "v3_e2e_rnnt_joint.int8.onnx",
+        ],
+        "cache_glob": "*e2e_rnnt_encoder*.onnx",
+        "quantization": "int8",
+        "size_bytes": 400_000_000,
+        "size_label": "~250 МБ",
+        "recommended": True,
+    },
+    {
+        "id": "gigaam-v3-e2e-ctc",
+        "group": "Сбер",
+        "label": "GigaAM v3 CTC",
+        "hint": "быстрее RNN-T, тоже русский",
+        "engine": "onnx-asr",
+        "source": "gigaam-v3-e2e-ctc",
+        "repo": "istupakov/gigaam-v3-onnx",
+        "hf_folders": ["models--istupakov--gigaam-v3-onnx"],
+        "allow_patterns": [
+            "config.json",
+            "v3_e2e_ctc.yaml",
+            "v3_e2e_ctc_vocab.txt",
+            "v3_e2e_ctc.int8.onnx",
+        ],
+        "cache_glob": "*e2e_ctc.int8.onnx",
+        "quantization": "int8",
+        "size_bytes": 400_000_000,
+        "size_label": "~250 МБ",
+    },
+]
+
 MODEL_OPTIONS = [
-    ("large-v3-turbo", "turbo — быстро и точно (рекомендуется)"),
-    ("small", "small — легче, менее точно"),
-    ("base", "base — самая быстрая"),
-    ("medium", "medium — точнее small"),
-    ("large-v3", "large-v3 — максимум, на CPU очень медленно"),
+    (item["id"], f"{item['label']} — {item['hint']}")
+    for item in MODEL_CATALOG
 ]
 
 DEFAULTS = {
@@ -48,6 +170,8 @@ DEFAULTS = {
     "model": "large-v3-turbo",
     "groq_api_key": "",
     "groq_proxy": "",
+    "mic_device": "",
+    "mic_gain": 1.5,
 }
 
 MOD_ALT = 0x0001
@@ -154,6 +278,9 @@ def spec_from_preset(hotkey_id: str) -> dict:
 def sanitize_hotkey_spec(raw) -> dict:
     if isinstance(raw, str):
         return spec_from_preset(raw)
+    if isinstance(raw, dict) and raw.get("keysym") and "vk" not in raw:
+        raw = dict(raw)
+        raw["vk"] = 0
     if not isinstance(raw, dict) or "vk" not in raw:
         return spec_from_preset(DEFAULTS["hotkey"])
     try:
@@ -163,6 +290,7 @@ def sanitize_hotkey_spec(raw) -> dict:
     spec = {
         "id": raw.get("id") if raw.get("id") in HOTKEY_VK else "custom",
         "vk": vk,
+        "keysym": str(raw.get("keysym") or ""),
         "ctrl": bool(raw.get("ctrl")),
         "alt": bool(raw.get("alt")),
         "shift": bool(raw.get("shift")),
@@ -170,7 +298,7 @@ def sanitize_hotkey_spec(raw) -> dict:
         "extended": bool(raw.get("extended")),
         "label": str(raw.get("label") or ""),
     }
-    if is_modifier_vk(vk):
+    if vk and is_modifier_vk(vk):
         spec["ctrl"] = False
         spec["alt"] = False
         spec["shift"] = False
@@ -182,30 +310,38 @@ def sanitize_hotkey_spec(raw) -> dict:
 def format_hotkey(spec: dict) -> str:
     vk = int(spec.get("vk") or 0)
     parts = []
-    if spec.get("ctrl") and not is_modifier_vk(vk):
+    if spec.get("ctrl") and not (vk and is_modifier_vk(vk)):
         parts.append("Ctrl")
     if spec.get("alt") and vk not in (VK_MENU, VK_LMENU, VK_RMENU):
         parts.append("Alt")
     if spec.get("shift") and vk not in (VK_SHIFT, VK_LSHIFT, VK_RSHIFT):
         parts.append("Shift")
     if spec.get("win") and vk not in (VK_LWIN, VK_RWIN):
-        parts.append("Win")
-    parts.append(vk_name(vk, bool(spec.get("extended"))))
+        parts.append("Cmd" if sys.platform == "darwin" else "Win")
+    if spec.get("keysym"):
+        parts.append(str(spec["keysym"]))
+    else:
+        parts.append(vk_name(vk, bool(spec.get("extended"))))
     return "+".join(parts)
 
 
 def hotkey_label(data: dict) -> str:
     spec = data.get("hotkey_spec")
-    if isinstance(spec, dict) and spec.get("vk"):
+    if isinstance(spec, dict) and (spec.get("vk") or spec.get("keysym")):
         return spec.get("label") or format_hotkey(spec)
     hid = data.get("hotkey")
     return HOTKEY_LABELS.get(hid, format_hotkey(spec_from_preset(DEFAULTS["hotkey"])))
 
 
 def app_dir() -> Path:
-    root = Path(os.environ.get("APPDATA") or Path.home()) / APP_NAME
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return user_data_dir()
+
+
+def disk_free() -> int:
+    try:
+        return shutil.disk_usage(_hub_dir()).free
+    except OSError:
+        return shutil.disk_usage(Path.home()).free
 
 
 def settings_path() -> Path:
@@ -239,13 +375,19 @@ def load_settings() -> dict:
     else:
         data["hotkey"] = DEFAULTS["hotkey"]
         data["hotkey_spec"] = spec_from_preset(data["hotkey"])
-    known_models = {item[0] for item in MODEL_OPTIONS}
+    known_models = {item["id"] for item in MODEL_CATALOG}
     if data.get("model") not in known_models:
         data["model"] = DEFAULTS["model"]
     if not isinstance(data.get("groq_api_key"), str):
         data["groq_api_key"] = ""
     if not isinstance(data.get("groq_proxy"), str):
         data["groq_proxy"] = ""
+    if not isinstance(data.get("mic_device"), str):
+        data["mic_device"] = ""
+    try:
+        data["mic_gain"] = max(0.2, min(8.0, float(data.get("mic_gain") or DEFAULTS["mic_gain"])))
+    except (TypeError, ValueError):
+        data["mic_gain"] = DEFAULTS["mic_gain"]
     return data
 
 
@@ -258,46 +400,109 @@ def save_settings(data: dict) -> None:
     )
 
 
-_HF_FOLDERS = {
-    "base": ["models--Systran--faster-whisper-base"],
-    "small": ["models--Systran--faster-whisper-small"],
-    "medium": ["models--Systran--faster-whisper-medium"],
-    "large-v3": ["models--Systran--faster-whisper-large-v3"],
-    "large-v3-turbo": [
-        "models--Systran--faster-whisper-large-v3-turbo",
-        "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
-        "models--dropbox-dash--faster-whisper-large-v3-turbo",
-    ],
-}
-
-
 def _hub_dir() -> Path:
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
+def get_model(model_id: str) -> dict:
+    for item in MODEL_CATALOG:
+        if item["id"] == model_id:
+            return item
+    return next(item for item in MODEL_CATALOG if item["id"] == DEFAULTS["model"])
+
+
 def is_model_cached(model_id: str) -> bool:
-    names = _HF_FOLDERS.get(model_id, [])
-    for name in names:
+    spec = next((item for item in MODEL_CATALOG if item["id"] == model_id), None)
+    if spec is None:
+        return False
+    pattern = spec.get("cache_glob") or "model.bin"
+    min_size = 10_000_000
+    for name in spec.get("hf_folders") or []:
         folder = _hub_dir() / name
         if not folder.is_dir():
             continue
         if any(folder.rglob("*.incomplete")):
             continue
-        bins = list(folder.rglob("model.bin"))
-        if any(path.stat().st_size > 10_000_000 for path in bins):
+        matches = list(folder.rglob(pattern))
+        if any(path.stat().st_size > min_size for path in matches):
             return True
     return False
 
 
 def cached_models() -> set[str]:
-    return {mid for mid in _HF_FOLDERS if is_model_cached(mid)}
+    return {item["id"] for item in MODEL_CATALOG if is_model_cached(item["id"])}
 
 
 def best_cached_model(preferred: str) -> str:
     cached = cached_models()
     if preferred in cached:
         return preferred
-    for candidate in (preferred, "large-v3-turbo", "small", "base", "medium", "large-v3"):
-        if candidate in cached:
-            return candidate
+    for item in MODEL_CATALOG:
+        if item["id"] in cached:
+            return item["id"]
     return "small"
+
+
+_PROXY_ENV = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
+
+@contextmanager
+def huggingface_network():
+    """Hugging Face через рабочий SOCKS, а не через мёртвый системный HTTP-прокси."""
+    keys = _PROXY_ENV + ("HF_HUB_DISABLE_XET",)
+    old = {key: os.environ.get(key) for key in keys}
+    try:
+        proxy = ""
+        try:
+            from socks_proxy import ensure_local_socks
+
+            proxy = ensure_local_socks() or ""
+        except Exception:
+            proxy = ""
+        if proxy.startswith("socks5://"):
+            proxy = "socks5h://" + proxy[len("socks5://") :]
+        if proxy:
+            for key in _PROXY_ENV:
+                os.environ[key] = proxy
+        else:
+            for key in _PROXY_ENV:
+                os.environ.pop(key, None)
+        os.environ["HF_HUB_DISABLE_XET"] = "1"
+        yield
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def download_model(model_id: str) -> None:
+    spec = get_model(model_id)
+    repo = spec.get("repo")
+    if not repo:
+        raise RuntimeError(f"Для модели {model_id} не указан репозиторий")
+    from huggingface_hub import snapshot_download
+
+    kwargs = {"repo_id": repo}
+    patterns = spec.get("allow_patterns")
+    if patterns:
+        kwargs["allow_patterns"] = patterns
+    try:
+        with huggingface_network():
+            snapshot_download(**kwargs)
+    except Exception as exc:
+        text = str(exc)
+        if "10061" in text or "ConnectError" in text:
+            raise RuntimeError(
+                "Нет связи с Hugging Face. Нужен локальный SOCKS 127.0.0.1:40000 "
+                "(WARP proxy / wireproxy). Сейчас прокси не отвечает."
+            ) from exc
+        raise RuntimeError(text[:400]) from exc

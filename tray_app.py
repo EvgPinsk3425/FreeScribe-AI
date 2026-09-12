@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,10 +15,12 @@ from hotkey import HotkeyManager
 from injector import capture_target, inject_text
 from settings import (
     HOTKEY_OPTIONS,
-    MODEL_OPTIONS,
+    MODEL_CATALOG,
     best_cached_model,
     cached_models,
+    disk_free,
     format_hotkey,
+    get_model,
     hotkey_label,
     is_model_cached,
     load_settings,
@@ -77,6 +78,10 @@ class WhisperTrayApp:
             )
 
         self.recorder = AudioRecorder()
+        self.recorder.configure(
+            self.settings.get("mic_device") or "",
+            self.settings.get("mic_gain") or 1.5,
+        )
         self.transcriber = Transcriber(startup_model, autoload=False)
         self.executor = ThreadPoolExecutor(max_workers=1)
         self._paste_hwnd = 0
@@ -121,9 +126,10 @@ class WhisperTrayApp:
         return "Статус: Работает" if self.active else "Статус: Пауза"
 
     def _model_label(self, model_id: str) -> str:
+        spec = get_model(model_id)
         downloaded = "скачана" if model_id in cached_models() else "скачается"
         mark = " • текущая" if model_id == self.transcriber.model_size else ""
-        return f"{model_id} ({downloaded}){mark}"
+        return f"{spec['label']} ({downloaded}){mark}"
 
     def _record_label(self, _item=None) -> str:
         if self.recording:
@@ -174,15 +180,21 @@ class WhisperTrayApp:
             )
             for hid, label, *_rest in HOTKEY_OPTIONS
         ]
-        model_items = [
-            pystray.MenuItem(
-                self._model_text(mid),
-                self._model_action(mid),
-                checked=self._model_checked(mid),
-                radio=True,
-            )
-            for mid, _label in MODEL_OPTIONS
-        ]
+        groups: dict[str, list] = {}
+        for spec in MODEL_CATALOG:
+            groups.setdefault(spec["group"], []).append(spec)
+        model_groups = []
+        for group, items in groups.items():
+            child = [
+                pystray.MenuItem(
+                    self._model_text(item["id"]),
+                    self._model_action(item["id"]),
+                    checked=self._model_checked(item["id"]),
+                    radio=True,
+                )
+                for item in items
+            ]
+            model_groups.append(pystray.MenuItem(group, pystray.Menu(*child)))
         return pystray.Menu(
             pystray.MenuItem(self._status_label, self._toggle_active),
             pystray.MenuItem(
@@ -209,7 +221,7 @@ class WhisperTrayApp:
                     ),
                 ),
             ),
-            pystray.MenuItem("Модель", pystray.Menu(*model_items)),
+            pystray.MenuItem("Модель", pystray.Menu(*model_groups)),
             pystray.MenuItem("Настройки...", self._open_settings),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Выход", self._quit),
@@ -258,19 +270,15 @@ class WhisperTrayApp:
         self._persist()
 
     def _set_model(self, model_size: str) -> None:
+        spec = get_model(model_size)
+        label = spec.get("label") or model_size
         if not is_model_cached(model_size):
-            free = shutil.disk_usage("C:\\").free
-            needed = {
-                "base": 300_000_000,
-                "small": 800_000_000,
-                "medium": 2_000_000_000,
-                "large-v3-turbo": 2_000_000_000,
-                "large-v3": 4_000_000_000,
-            }.get(model_size, 1_000_000_000)
+            free = disk_free()
+            needed = spec.get("size_bytes", 1_000_000_000)
             if free < needed:
                 free_gb = free / (1024 ** 3)
                 self._notify(
-                    f"Недостаточно места на диске C: ({free_gb:.1f} ГБ свободно) для {model_size}",
+                    f"Недостаточно места ({free_gb:.1f} ГБ свободно) для {label}",
                     "Модель",
                 )
                 return
@@ -279,13 +287,13 @@ class WhisperTrayApp:
         save_settings(self.settings)
 
         def load():
-            self._notify("Загрузка модели " + model_size, "F1 Whisper Typing")
+            self._notify("Загрузка модели " + label, "F1 Whisper Typing")
             self.transcriber.set_model_size(model_size)
             self._refresh_menu()
             if self.transcriber.error:
                 self._notify(self.transcriber.error, "Ошибка модели")
             else:
-                self._notify("Модель " + model_size + " готова", "F1 Whisper Typing")
+                self._notify("Модель " + label + " готова", "F1 Whisper Typing")
 
         threading.Thread(target=load, daemon=True).start()
         self._refresh_menu()
@@ -301,6 +309,10 @@ class WhisperTrayApp:
             self.settings["hotkey_spec"] = spec
             self._hook.set_hotkey(spec)
             self._hook.set_hold_mode(self.settings["hotkey_mode"] == "hold")
+            self.recorder.configure(
+                self.settings.get("mic_device") or "",
+                self.settings.get("mic_gain") or 1.5,
+            )
             save_settings(self.settings)
             if data.get("model") and data["model"] != self.transcriber.model_size:
                 self._set_model(data["model"])
@@ -343,6 +355,10 @@ class WhisperTrayApp:
         self._paste_hwnd, self._paste_focus = capture_target()
         self._set_icon_color()
         try:
+            self.recorder.configure(
+                self.settings.get("mic_device") or "",
+                self.settings.get("mic_gain") or 1.5,
+            )
             self.recorder.start()
         except Exception as exc:
             logger.exception("microphone")
@@ -393,6 +409,16 @@ class WhisperTrayApp:
                     if not self.transcriber.ready:
                         raise RuntimeError("Модель не успела загрузиться")
                 text = self.transcriber.transcribe(audio, SAMPLE_RATE)
+            junk = (
+                "продолжение следует",
+                "субтитры создавал",
+                "dimatorzok",
+                "thanks for watching",
+                "subscribe to",
+            )
+            if text and any(token in text.lower() for token in junk):
+                logger.info("drop junk transcript: %s", text[:80])
+                text = ""
             if text:
                 inject_text(text, hwnd, focus)
                 logger.info("injected: %s", text[:80])
@@ -414,25 +440,42 @@ class WhisperTrayApp:
 
     def _load_startup_model(self) -> None:
         self.transcriber.load_model(local_only=True)
-        if not self.transcriber.ready:
-            fallback = best_cached_model("small")
+        if self.transcriber.ready:
+            self._refresh_menu()
+            self._notify(f"Готово. Модель {self.transcriber.model_size}", "F1 Whisper Typing")
+            if self._wanted_model != self.transcriber.model_size and disk_free() > 2_000_000_000:
+                self._notify(f"Скачиваю {self._wanted_model}…", "F1 Whisper Typing")
+                self._set_model(self._wanted_model)
+            return
+        fallback = best_cached_model("small")
+        if is_model_cached(fallback) and fallback != self.transcriber.model_size:
             logger.warning("startup model failed, fallback %s", fallback)
             self.transcriber.model_size = fallback
             self.settings["model"] = fallback
             save_settings(self.settings)
             self.transcriber.load_model(local_only=True)
+            self._refresh_menu()
+            if self.transcriber.ready:
+                self._notify(f"Готово. Модель {self.transcriber.model_size}", "F1 Whisper Typing")
+                return
+        target = self._wanted_model
+        spec = get_model(target)
+        if disk_free() < spec.get("size_bytes", 800_000_000):
+            target = "small"
+            spec = get_model(target)
+        self._notify(
+            f"Первый запуск: скачиваю {spec['label']} ({spec['size_label']}). Не закрывайте программу.",
+            "F1 Whisper Typing",
+        )
+        self.transcriber.model_size = target
+        self.settings["model"] = target
+        save_settings(self.settings)
+        self.transcriber.load_model(local_only=False)
         self._refresh_menu()
         if self.transcriber.ready:
-            self._notify(f"Готово. Модель {self.transcriber.model_size}", "F1 Whisper Typing")
+            self._notify(f"Готово. Модель {spec['label']}", "F1 Whisper Typing")
         else:
-            self._notify(self.transcriber.error or "Модель не загрузилась", "Ошибка")
-            return
-        if (
-            self._wanted_model != self.transcriber.model_size
-            and shutil.disk_usage("C:\\").free > 2_000_000_000
-        ):
-            self._notify(f"Скачиваю {self._wanted_model}…", "F1 Whisper Typing")
-            self._set_model(self._wanted_model)
+            self._notify(self.transcriber.error or "Модель не загрузилась. Откройте Настройки → Модели.", "Ошибка")
 
     def run(self) -> None:
         logger.info("starting tray")

@@ -23,9 +23,25 @@ hiddenimports = [
     "httpx",
     "httpcore",
     "socksio",
+    "onnx_asr",
+    "onnxruntime",
+    "huggingface_hub",
+    "compat",
+    "hotkey_win",
+    "injector_win",
 ]
 
-for package in ("faster_whisper", "ctranslate2", "pystray", "pynput", "sounddevice", "PIL"):
+for package in (
+    "faster_whisper",
+    "ctranslate2",
+    "pystray",
+    "pynput",
+    "sounddevice",
+    "PIL",
+    "onnx_asr",
+    "onnxruntime",
+    "huggingface_hub",
+):
     tmp_ret = collect_all(package)
     datas += tmp_ret[0]
     binaries += tmp_ret[1]

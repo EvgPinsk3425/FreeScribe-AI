@@ -1,72 +1,98 @@
 # F1 Whisper Typing
 
-Офлайн голосовой набор текста для Windows 10/11 — аналог WhisperTyping.
+**Бесплатный офлайн голосовой набор для Windows и macOS.** Нажали горячую клавишу → сказали → текст вставился в любое окно. Без подписки, без облака, без GPU.
 
-Запись по горячей клавише → локальное распознавание речи → мгновенная вставка текста в активное окно.
+> Аналог [WhisperTyping](https://github.com/savoirfairelinux/whisper-typing) — open source, заточен под русский язык.
+
+![Windows](https://img.shields.io/badge/Windows-10%2F11-blue)
+![macOS](https://img.shields.io/badge/macOS-12+-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Offline](https://img.shields.io/badge/offline-yes-brightgreen)
+
+## Быстрый старт
+
+### Windows (exe)
+
+1. Скачайте **F1WhisperTyping.exe** из [Releases](../../releases).
+2. Запустите — иконка микрофона появится в трее (иногда в скрытых значках ▲).
+3. Откройте текстовое поле, нажмите **Ctrl+F8**, говорите, нажмите ещё раз.
+4. Текст вставится сам.
+
+При первом запуске программа сама скачает модель (turbo ~1.6 ГБ или small ~500 МБ). Для русского удобнее **GigaAM Сбера** (~250 МБ): трей → Настройки → Модели.
+
+### macOS (из исходников)
+
+Нужны Python 3.11+ и микрофон.
+
+```bash
+git clone https://github.com/YOUR_USERNAME/F1WhisperTyping.git
+cd F1WhisperTyping
+chmod +x start.command
+./start.command
+```
+
+Или вручную:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 main.py
+```
+
+На Mac разрешите:
+
+- **Микрофон** — Системные настройки → Конфиденциальность и безопасность;
+- **Универсальный доступ (Accessibility)** — для горячей клавиши и вставки текста.
+
+Иконка — в строке меню справа вверху.
+
+## Модели (каталог)
+
+В настройках список готовых шаблонов. Скачивается только выбранная.
+
+| Группа | Модель | Размер | Зачем |
+|---|---|---|---|
+| Whisper | turbo ★ | ~1.6 ГБ | быстро и точно, по умолчанию |
+| Whisper | small / base | 150–500 МБ | если мало места |
+| **Сбер** | **GigaAM v3 RNN-T ★** | **~250 МБ** | лучше на русском, с пунктуацией |
+| Сбер | GigaAM v3 CTC | ~250 МБ | быстрее RNN-T |
+
+Как скачать: Настройки → Модели → выбрать → **Скачать выбранную** → **Сохранить**.
+
+Новая модель в каталог — ещё один словарь в `MODEL_CATALOG` (`settings.py`).
 
 ## Возможности
 
-- **Push-to-Talk / Toggle** — зажать клавишу или переключатель (по умолчанию Ctrl+F8)
-- **Офлайн-распознавание** — [faster-whisper](https://github.com/SYSTRAN/faster-whisper) на CPU (int8)
-- **Модели** — turbo (large-v3-turbo), small, base, medium
-- **Вставка через буфер обмена** — надёжнее посимвольного ввода
-- **Системный трей** — работа в фоне, настройки из меню
-- **Опционально Groq API** — облачное распознавание, если нужна скорость (ключ в настройках)
+- Push-to-Talk или переключатель (по умолчанию Ctrl+F8)
+- Офлайн: faster-whisper и GigaAM Сбера на CPU
+- Вставка через буфер (Ctrl+V / Cmd+V)
+- Трей / строка меню
+- Опционально Groq API
 
-## Требования
-
-- Windows 10/11
-- Python 3.11+ (для запуска из исходников)
-- Микрофон
-
-## Установка и запуск
+## Установка из исходников (Windows)
 
 ```powershell
 git clone https://github.com/YOUR_USERNAME/F1WhisperTyping.git
 cd F1WhisperTyping
-pip install -r requirements.txt
-python main.py
+py -3.13 -m pip install -r requirements.txt
+py -3.13 main.py
 ```
 
-При первом запуске скачается модель Whisper (~500 МБ–1.5 ГБ в зависимости от выбора).
+Либо двойной щелчок по `start.bat`. Не используйте голый `python`, если в PATH другой интерпретатор.
 
-## Сборка в .exe
+## Сборка exe (Windows)
 
 ```powershell
 build.bat
 ```
 
-Или вручную:
+Файл: `dist\F1WhisperTyping.exe`. CI собирает exe при теге `v*` (Actions → Build Windows exe).
 
-```powershell
-python -m PyInstaller --noconfirm WhisperTyping.spec
-```
+## Требования
 
-Готовый файл: `dist\F1WhisperTyping.exe`
-
-## Использование
-
-1. Запустите приложение — иконка микрофона появится в трее (возможно в «скрытых значках»).
-2. Откройте любое текстовое поле.
-3. Нажмите горячую клавишу (по умолчанию **Ctrl+F8**):
-   - режим **удержание** — говорите, пока клавиша зажата;
-   - режим **переключатель** — нажали для старта, ещё раз для стопа.
-4. Распознанный текст вставится в активное окно.
-
-Настройки: правый клик по иконке в трее → **Настройки**.
-
-## Структура проекта
-
-| Файл | Назначение |
-|------|------------|
-| `main.py` | Точка входа |
-| `tray_app.py` | Трей и основная логика |
-| `hotkey.py` | Глобальные горячие клавиши |
-| `audio_recorder.py` | Захват микрофона в RAM |
-| `transcriber.py` | faster-whisper / Groq |
-| `injector.py` | Вставка текста через Ctrl+V |
-| `settings.py` | Настройки (%APPDATA%) |
-| `settings_ui.py` | Окно настроек |
+- Windows 10/11 или macOS 12+
+- Микрофон
+- Для исходников: Python 3.11+
+- Место на диске под модель (250 МБ–3 ГБ)
 
 ## Лицензия
 

@@ -13,7 +13,7 @@ import wave
 import numpy as np
 from faster_whisper import WhisperModel
 
-from settings import MODEL_OPTIONS, is_model_cached
+from settings import get_model, huggingface_network, is_model_cached
 
 DEFAULT_MODEL = "large-v3-turbo"
 LANGUAGE = "ru"
@@ -112,7 +112,7 @@ def _groq_client(api_key: str, proxy: str = ""):
         "timeout": 30.0,
         "headers": {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "F1WhisperTyping/1.0",
+            "User-Agent": "F1WhisperTyping/2.0",
         },
         "follow_redirects": True,
     }
@@ -226,7 +226,8 @@ class Transcriber:
     def __init__(self, model_size: str = DEFAULT_MODEL, autoload: bool = True):
         self.model_size = model_size
         self._lock = threading.Lock()
-        self._model: WhisperModel | None = None
+        self._model = None
+        self._engine = "faster-whisper"
         self.ready = False
         self.error: str | None = None
         if autoload:
@@ -236,22 +237,30 @@ class Transcriber:
         with self._lock:
             self.ready = False
             self.error = None
+            self._model = None
+            spec = get_model(self.model_size)
+            engine = spec.get("engine") or "faster-whisper"
+            self._engine = engine
             threads = min(8, max(4, os.cpu_count() or 4))
             logger.info(
-                "loading model %s local_only=%s threads=%s",
+                "loading model %s engine=%s local_only=%s threads=%s",
                 self.model_size,
+                engine,
                 local_only,
                 threads,
             )
             try:
-                self._model = WhisperModel(
-                    self.model_size,
-                    device="cpu",
-                    compute_type="int8",
-                    cpu_threads=threads,
-                    num_workers=1,
-                    local_files_only=local_only,
-                )
+                if engine == "onnx-asr":
+                    self._model = self._load_onnx(spec, local_only)
+                else:
+                    self._model = WhisperModel(
+                        spec.get("source") or self.model_size,
+                        device="cpu",
+                        compute_type="int8",
+                        cpu_threads=threads,
+                        num_workers=1,
+                        local_files_only=local_only,
+                    )
                 self.ready = True
                 logger.info("model %s ready", self.model_size)
             except Exception as exc:
@@ -259,9 +268,42 @@ class Transcriber:
                 self.error = str(exc)
                 logger.exception("failed to load model %s", self.model_size)
 
+    def _load_onnx(self, spec: dict, local_only: bool):
+        try:
+            import onnx_asr
+        except ImportError as exc:
+            raise RuntimeError(
+                "Для модели Сбера нужен пакет onnx-asr. Установите: pip install \"onnx-asr[cpu,hub]\""
+            ) from exc
+        from huggingface_hub import snapshot_download
+
+        path = None
+        repo = spec.get("repo")
+        if repo:
+            kwargs = {"repo_id": repo, "local_files_only": local_only}
+            patterns = spec.get("allow_patterns")
+            if patterns:
+                kwargs["allow_patterns"] = patterns
+            try:
+                if local_only:
+                    path = snapshot_download(**kwargs)
+                else:
+                    with huggingface_network():
+                        path = snapshot_download(**kwargs)
+            except Exception:
+                if local_only:
+                    raise
+                path = None
+        name = spec.get("source") or self.model_size
+        quant = spec.get("quantization") or "int8"
+        if local_only:
+            return onnx_asr.load_model(name, path, quantization=quant)
+        with huggingface_network():
+            return onnx_asr.load_model(name, path, quantization=quant)
+
     def set_model_size(self, model_size: str) -> None:
-        known = {item[0] for item in MODEL_OPTIONS}
-        if model_size not in known:
+        spec = get_model(model_size)
+        if spec["id"] != model_size:
             return
         if model_size == self.model_size and self.ready:
             return
@@ -277,29 +319,66 @@ class Transcriber:
                 raise RuntimeError(self.error or "Модель ещё загружается")
             started = time.perf_counter()
             duration = len(audio) / float(sample_rate or 16000)
-            # Silero VAD на CPU часто дольше самой фразы; для коротких реплик он не нужен.
-            use_vad = duration >= 8.0
-            kwargs = {
-                "language": LANGUAGE,
-                "vad_filter": use_vad,
-                "beam_size": 1,
-                "temperature": 0.0,
-                "condition_on_previous_text": False,
-                "without_timestamps": True,
-            }
-            if use_vad:
-                kwargs["vad_parameters"] = {
-                    "threshold": 0.35,
-                    "min_silence_duration_ms": 400,
-                    "speech_pad_ms": 250,
-                }
-            segments, _ = self._model.transcribe(audio, **kwargs)
-            text = "".join(segment.text for segment in segments).strip()
+            if self._engine == "onnx-asr":
+                text = self._transcribe_onnx(audio, sample_rate)
+            else:
+                text = self._transcribe_whisper(audio, sample_rate, duration)
             logger.info(
-                "local transcribe %.2fs model=%s audio=%.1fs vad=%s",
+                "local transcribe %.2fs model=%s engine=%s audio=%.1fs",
                 time.perf_counter() - started,
                 self.model_size,
+                self._engine,
                 duration,
-                use_vad,
             )
             return text
+
+    def _transcribe_whisper(self, audio: np.ndarray, sample_rate: int, duration: float) -> str:
+        use_vad = duration >= 8.0
+        kwargs = {
+            "language": LANGUAGE,
+            "vad_filter": use_vad,
+            "beam_size": 1,
+            "temperature": 0.0,
+            "condition_on_previous_text": False,
+            "without_timestamps": True,
+        }
+        if use_vad:
+            kwargs["vad_parameters"] = {
+                "threshold": 0.35,
+                "min_silence_duration_ms": 400,
+                "speech_pad_ms": 250,
+            }
+        segments, _ = self._model.transcribe(audio, **kwargs)
+        return "".join(segment.text for segment in segments).strip()
+
+    def _transcribe_onnx(self, audio: np.ndarray, sample_rate: int) -> str:
+        waveform = np.asarray(audio, dtype=np.float32).reshape(-1)
+        max_samples = int(sample_rate * 20)
+        hop = int(sample_rate * 19)
+        parts = []
+        start = 0
+        while start < len(waveform):
+            chunk = waveform[start : start + max_samples]
+            if len(chunk) < sample_rate // 5:
+                break
+            result = self._model.recognize(chunk, sample_rate=int(sample_rate))
+            text = _onnx_text(result)
+            if text:
+                parts.append(text)
+            if start + max_samples >= len(waveform):
+                break
+            start += hop
+        return " ".join(parts).strip()
+
+
+def _onnx_text(result) -> str:
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result.strip()
+    if isinstance(result, (list, tuple)):
+        return " ".join(_onnx_text(item) for item in result if item is not None).strip()
+    text = getattr(result, "text", None)
+    if isinstance(text, str):
+        return text.strip()
+    return str(result).strip()
