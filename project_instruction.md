@@ -26,7 +26,7 @@
 
 ## Сборка и GitHub
 
-`build.bat` → exe. При теге `v1.0` GitHub Actions собирает Windows-файл.
+`build.bat` → exe. При теге `v*` GitHub Actions собирает Windows-файл. Тексты для GitHub: README.md (RU+EN) и PROMO.md.
 
 ## Версия
 

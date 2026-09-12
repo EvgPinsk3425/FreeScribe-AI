@@ -112,7 +112,7 @@ def _groq_client(api_key: str, proxy: str = ""):
         "timeout": 30.0,
         "headers": {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "F1WhisperTyping/2.0",
+            "User-Agent": "F1WhisperTyping/2.1",
         },
         "follow_redirects": True,
     }
