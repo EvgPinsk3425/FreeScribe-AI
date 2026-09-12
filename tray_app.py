@@ -123,6 +123,10 @@ class WhisperTrayApp:
     def _status_label(self, _item=None) -> str:
         if self.recording:
             return "Статус: Запись..."
+        if getattr(self.transcriber, "error", None):
+            return "Статус: Ошибка модели"
+        if not getattr(self.transcriber, "ready", False):
+            return "Статус: Загрузка модели..."
         return "Статус: Работает" if self.active else "Статус: Пауза"
 
     def _model_label(self, model_id: str) -> str:
@@ -322,7 +326,15 @@ class WhisperTrayApp:
         open_settings_window(snapshot, apply_saved)
 
     def _notify(self, message: str, title: str = "Whisper Typing") -> None:
-        logger.info("notify suppressed: %s | %s", title, message[:120])
+        text = (message or "").strip() or title
+        logger.info("notify: %s | %s", title, text[:160])
+        icon = getattr(self, "_icon", None)
+        if icon is None:
+            return
+        try:
+            icon.notify(text[:240], title)
+        except Exception:
+            logger.exception("tray notify")
 
     def _toggle_recording(self, _icon=None, _item=None) -> None:
         with self._state_lock:
@@ -377,7 +389,12 @@ class WhisperTrayApp:
         audio = self.recorder.stop()
         if audio is None or len(audio) == 0:
             logger.info("recording empty")
+            self._notify(
+                "Микрофон не записал звук. Настройки → Микрофон → «Слушать» и проверьте полоску.",
+                "Запись",
+            )
             return
+        self._notify("Распознаю речь…", "F1 Whisper Typing")
         self.executor.submit(self._transcribe_and_inject, audio, self._paste_hwnd, self._paste_focus)
 
     def _transcribe_and_inject(self, audio, hwnd: int = 0, focus: int = 0) -> None:
@@ -475,7 +492,14 @@ class WhisperTrayApp:
         if self.transcriber.ready:
             self._notify(f"Готово. Модель {spec['label']}", "F1 Whisper Typing")
         else:
-            self._notify(self.transcriber.error or "Модель не загрузилась. Откройте Настройки → Модели.", "Ошибка")
+            err = self.transcriber.error or "Модель не загрузилась. Откройте Настройки → Модели и нажмите «Скачать»."
+            self._notify(err, "Ошибка модели")
+            try:
+                from compat import show_message
+
+                show_message(err, error=True)
+            except Exception:
+                logger.exception("model error dialog")
 
     def run(self) -> None:
         logger.info("starting tray")

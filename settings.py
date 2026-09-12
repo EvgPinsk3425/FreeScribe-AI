@@ -12,8 +12,8 @@ from pathlib import Path
 from compat import user_data_dir
 
 APP_NAME = "F1WhisperTyping"
-APP_VERSION = "2.1"
-APP_UPDATED = "12.09.2026 10:24"
+APP_VERSION = "2.2"
+APP_UPDATED = "12.09.2026 19:02"
 
 HOTKEY_OPTIONS = [
     ("f1", "F1", 0x70, 0),
