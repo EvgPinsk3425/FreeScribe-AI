@@ -69,7 +69,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="F1WhisperTyping",
+    name="FreeScribe-AI",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

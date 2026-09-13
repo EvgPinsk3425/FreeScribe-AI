@@ -1,10 +1,10 @@
-# F1 Whisper Typing — инструкция по проекту
+# FreeScribe-AI — инструкция по проекту
 
 Офлайн голосовой набор для Windows и macOS: горячая клавиша → речь → текст в активном окне.
 
 ## Запуск
 
-- Windows: `start.bat` или `py -3.13 main.py`. Готовый exe: `dist\F1WhisperTyping.exe` / Releases.
+- Windows: `start.bat` или `py -3.13 main.py`. Готовый exe: `release\FreeScribe-AI.exe` / Releases.
 - macOS: `./start.command` или `python3 main.py`. Разрешить микрофон и Универсальный доступ.
 
 Не запускать через случайный `python` из PATH (может быть другой интерпретатор без пакетов).
@@ -18,15 +18,19 @@
 
 Первый запуск сам скачивает модель, если её ещё нет.
 
+## Сигналы
+
+В настройках: «Всплывающие подсказки у иконки» и «Звук при старте и окончании записи».
+
 ## Где лежат данные
 
-- Windows: `%APPDATA%\F1WhisperTyping`
-- macOS: `~/Library/Application Support/F1WhisperTyping`
+- Windows: `%APPDATA%\FreeScribe-AI` (старые настройки из F1WhisperTyping подхватываются)
+- macOS: `~/Library/Application Support/FreeScribe-AI`
 - Модели: кэш Hugging Face `~/.cache/huggingface/hub`
 
 ## Сборка и GitHub
 
-`build.bat` → exe. При теге `v*` GitHub Actions собирает Windows-файл. Тексты для GitHub: README.md (RU+EN) и PROMO.md.
+`build.bat` → `dist\FreeScribe-AI.exe`, копия в `release\`. При теге `v*` GitHub Actions собирает Windows-файл. Репозиторий: FreeScribe-AI. Тексты: README.md и PROMO.md.
 
 ## Версия
 

@@ -1,4 +1,4 @@
-"""Системный трей и управление приложением."""
+﻿"""Системный трей и управление приложением."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from audio_recorder import AudioRecorder, SAMPLE_RATE
 from hotkey import HotkeyManager
 from injector import capture_target, inject_text
 from settings import (
+    APP_TITLE,
     HOTKEY_OPTIONS,
     MODEL_CATALOG,
     best_cached_model,
@@ -99,9 +100,9 @@ class WhisperTrayApp:
             spec=self.settings.get("hotkey_spec"),
         )
         self._icon = pystray.Icon(
-            "f1_whisper_typing",
+            "freescribe_ai",
             _create_icon(),
-            "F1 Whisper Typing",
+            "FreeScribe-AI",
             menu=self._build_menu(),
         )
 
@@ -115,10 +116,10 @@ class WhisperTrayApp:
         else:
             hint = f"{label} — старт/стоп"
         if self.recording:
-            return f"Whisper Typing — идёт запись ({hint})"
+            return f"FreeScribe-AI — идёт запись ({hint})"
         if not self.active:
-            return "Whisper Typing — пауза"
-        return f"Whisper Typing — {hint}"
+            return "FreeScribe-AI — пауза"
+        return f"FreeScribe-AI — {hint}"
 
     def _status_label(self, _item=None) -> str:
         if self.recording:
@@ -291,13 +292,13 @@ class WhisperTrayApp:
         save_settings(self.settings)
 
         def load():
-            self._notify("Загрузка модели " + label, "F1 Whisper Typing")
+            self._notify("Загрузка модели " + label, "FreeScribe-AI")
             self.transcriber.set_model_size(model_size)
             self._refresh_menu()
             if self.transcriber.error:
                 self._notify(self.transcriber.error, "Ошибка модели")
             else:
-                self._notify("Модель " + label + " готова", "F1 Whisper Typing")
+                self._notify("Модель " + label + " готова", "FreeScribe-AI")
 
         threading.Thread(target=load, daemon=True).start()
         self._refresh_menu()
@@ -325,9 +326,11 @@ class WhisperTrayApp:
 
         open_settings_window(snapshot, apply_saved)
 
-    def _notify(self, message: str, title: str = "Whisper Typing") -> None:
+    def _notify(self, message: str, title: str = APP_TITLE) -> None:
         text = (message or "").strip() or title
         logger.info("notify: %s | %s", title, text[:160])
+        if not self.settings.get("show_toasts", True):
+            return
         icon = getattr(self, "_icon", None)
         if icon is None:
             return
@@ -335,6 +338,28 @@ class WhisperTrayApp:
             icon.notify(text[:240], title)
         except Exception:
             logger.exception("tray notify")
+
+    def _record_beep(self, kind: str) -> None:
+        if not self.settings.get("record_beeps", True):
+            return
+
+        def play() -> None:
+            try:
+                import sys
+
+                if sys.platform == "win32":
+                    import winsound
+
+                    if kind == "start":
+                        winsound.Beep(980, 70)
+                    else:
+                        winsound.Beep(620, 90)
+                else:
+                    print("\a", end="", flush=True)
+            except Exception:
+                logger.exception("record beep")
+
+        threading.Thread(target=play, daemon=True).start()
 
     def _toggle_recording(self, _icon=None, _item=None) -> None:
         with self._state_lock:
@@ -366,6 +391,7 @@ class WhisperTrayApp:
         logger.info("recording start")
         self._paste_hwnd, self._paste_focus = capture_target()
         self._set_icon_color()
+        self._record_beep("start")
         try:
             self.recorder.configure(
                 self.settings.get("mic_device") or "",
@@ -386,6 +412,7 @@ class WhisperTrayApp:
             self.recording = False
         logger.info("recording stop")
         self._set_icon_color()
+        self._record_beep("stop")
         audio = self.recorder.stop()
         if audio is None or len(audio) == 0:
             logger.info("recording empty")
@@ -394,7 +421,7 @@ class WhisperTrayApp:
                 "Запись",
             )
             return
-        self._notify("Распознаю речь…", "F1 Whisper Typing")
+        self._notify("Распознаю речь…", "FreeScribe-AI")
         self.executor.submit(self._transcribe_and_inject, audio, self._paste_hwnd, self._paste_focus)
 
     def _transcribe_and_inject(self, audio, hwnd: int = 0, focus: int = 0) -> None:
@@ -416,7 +443,7 @@ class WhisperTrayApp:
                     self._notify(f"{exc} Распознаю локально…", "Groq")
             if not text:
                 if not self.transcriber.ready:
-                    self._notify("Модель ещё загружается, подождите", "Whisper Typing")
+                    self._notify("Модель ещё загружается, подождите", "FreeScribe-AI")
                     for _ in range(120):
                         if self.transcriber.ready or self.transcriber.error:
                             break
@@ -441,7 +468,7 @@ class WhisperTrayApp:
                 logger.info("injected: %s", text[:80])
                 self._notify(text, "Распознано")
             else:
-                self._notify("Не удалось разобрать речь", "Whisper Typing")
+                self._notify("Не удалось разобрать речь", "FreeScribe-AI")
         except Exception as exc:
             logger.exception("transcribe")
             self._notify(str(exc), "Ошибка распознавания")
@@ -459,9 +486,9 @@ class WhisperTrayApp:
         self.transcriber.load_model(local_only=True)
         if self.transcriber.ready:
             self._refresh_menu()
-            self._notify(f"Готово. Модель {self.transcriber.model_size}", "F1 Whisper Typing")
+            self._notify(f"Готово. Модель {self.transcriber.model_size}", "FreeScribe-AI")
             if self._wanted_model != self.transcriber.model_size and disk_free() > 2_000_000_000:
-                self._notify(f"Скачиваю {self._wanted_model}…", "F1 Whisper Typing")
+                self._notify(f"Скачиваю {self._wanted_model}…", "FreeScribe-AI")
                 self._set_model(self._wanted_model)
             return
         fallback = best_cached_model("small")
@@ -473,7 +500,7 @@ class WhisperTrayApp:
             self.transcriber.load_model(local_only=True)
             self._refresh_menu()
             if self.transcriber.ready:
-                self._notify(f"Готово. Модель {self.transcriber.model_size}", "F1 Whisper Typing")
+                self._notify(f"Готово. Модель {self.transcriber.model_size}", "FreeScribe-AI")
                 return
         target = self._wanted_model
         spec = get_model(target)
@@ -482,7 +509,7 @@ class WhisperTrayApp:
             spec = get_model(target)
         self._notify(
             f"Первый запуск: скачиваю {spec['label']} ({spec['size_label']}). Не закрывайте программу.",
-            "F1 Whisper Typing",
+            "FreeScribe-AI",
         )
         self.transcriber.model_size = target
         self.settings["model"] = target
@@ -490,7 +517,7 @@ class WhisperTrayApp:
         self.transcriber.load_model(local_only=False)
         self._refresh_menu()
         if self.transcriber.ready:
-            self._notify(f"Готово. Модель {spec['label']}", "F1 Whisper Typing")
+            self._notify(f"Готово. Модель {spec['label']}", "FreeScribe-AI")
         else:
             err = self.transcriber.error or "Модель не загрузилась. Откройте Настройки → Модели и нажмите «Скачать»."
             self._notify(err, "Ошибка модели")
@@ -512,10 +539,10 @@ class WhisperTrayApp:
                 logger.exception("hook start")
                 self._notify(
                     f"Хоткей недоступен: {exc}. Запись из меню трея.",
-                    "F1 Whisper Typing",
+                    "FreeScribe-AI",
                 )
             if self._fallback_notice:
-                self._notify(self._fallback_notice, "F1 Whisper Typing")
+                self._notify(self._fallback_notice, "FreeScribe-AI")
             threading.Thread(target=self._load_startup_model, daemon=True).start()
 
         self._icon.run(setup=setup)

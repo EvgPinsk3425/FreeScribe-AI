@@ -1,4 +1,4 @@
-# F1 Whisper Typing
+﻿# FreeScribe-AI
 
 **Free offline voice typing / бесплатный офлайн голосовой ввод** for Windows and macOS.  
 Press a hotkey → speak → text is pasted into Notepad, the browser, messengers, Word, or any focused window.
@@ -11,8 +11,8 @@ Press a hotkey → speak → text is pasted into Notepad, the browser, messenger
 ![Offline](https://img.shields.io/badge/offline-whisper-brightgreen)
 ![No GPU](https://img.shields.io/badge/GPU-not%20required-lightgrey)
 
-**Repo:** [github.com/EvgPinsk3425/F1WhisperTyping](https://github.com/EvgPinsk3425/F1WhisperTyping)  
-**Windows exe:** [Releases · v2.0](https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0)
+**Repo:** [github.com/EvgPinsk3425/FreeScribe-AI](https://github.com/EvgPinsk3425/FreeScribe-AI)  
+**Windows exe:** [Releases · v2.3](https://github.com/EvgPinsk3425/FreeScribe-AI/releases/tag/v2.3)
 
 Open-source **offline Whisper** dictation. No cloud subscription, no hidden fees, no NVIDIA GPU. Keywords: *voice typing, offline whisper, голосовой ввод, диктовка текста, speech to text, push-to-talk*.
 
@@ -22,11 +22,11 @@ Open-source **offline Whisper** dictation. No cloud subscription, no hidden fees
 
 ### Что это
 
-**F1 Whisper Typing** — программа для **диктовки текста** и **голосового ввода** на компьютере. Распознавание речи идёт **офлайн** через **Whisper** (faster-whisper) или модель **GigaAM Сбера**. Аудио не обязано уходить в облако Microsoft, Google или платный сервис.
+**FreeScribe-AI** — программа для **диктовки текста** и **голосового ввода** на компьютере. Распознавание речи идёт **офлайн** через **Whisper** (faster-whisper) или модель **GigaAM Сбера**. Аудио не обязано уходить в облако Microsoft, Google или платный сервис.
 
 Аналог [WhisperTyping](https://github.com/savoirfairelinux/whisper-typing): горячая клавиша, запись с микрофона, вставка в **активное окно**.
 
-| | F1 Whisper Typing | Windows «Голосовой ввод» | Платные диктовки |
+| | FreeScribe-AI | Windows «Голосовой ввод» | Платные диктовки |
 |---|---|---|---|
 | Цена | Бесплатно, MIT | Встроено | Подписка |
 | Офлайн | Да (local Whisper) | Облако | Зависит |
@@ -43,10 +43,11 @@ Open-source **offline Whisper** dictation. No cloud subscription, no hidden fees
 - **Автоматическая вставка текста** в любое активное окно: блокнот, браузер, Telegram, WhatsApp Web, Word, почта, IDE — через буфер и Ctrl+V / Cmd+V.
 - Каталог моделей в настройках: Whisper turbo / small / large и **GigaAM** (~250 МБ) для русского.
 - Опционально Groq API, если нужна облачная скорость. Локальный режим от этого не зависит.
+- **Всплывающие подсказки** у иконки и **звуки старта/стопа записи** — включаются в настройках.
 
 ### Установка Windows (exe)
 
-1. Скачайте **F1WhisperTyping.exe** из [Releases](https://github.com/EvgPinsk3425/F1WhisperTyping/releases).
+1. Скачайте **FreeScribe-AI.exe** из [Releases](https://github.com/EvgPinsk3425/FreeScribe-AI/releases).
 2. Запустите файл. Иконка микрофона — в системном трее (иногда в ▲ скрытых значках).
 3. Откройте поле ввода, нажмите **Ctrl+F8**, говорите, нажмите ещё раз.
 4. Текст вставится в активное окно.
@@ -56,8 +57,8 @@ Open-source **offline Whisper** dictation. No cloud subscription, no hidden fees
 ### Установка из исходников (Windows)
 
 ```powershell
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 py -3.13 -m pip install -r requirements.txt
 py -3.13 main.py
 ```
@@ -67,8 +68,8 @@ py -3.13 main.py
 ### Установка macOS
 
 ```bash
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 chmod +x start.command
 ./start.command
 ```
@@ -88,7 +89,7 @@ chmod +x start.command
 
 ### Сборка exe
 
-`build.bat` → `dist\F1WhisperTyping.exe`. GitHub Actions собирает exe по тегу `v*`.
+`build.bat` → `dist\FreeScribe-AI.exe`. GitHub Actions собирает exe по тегу `v*`.
 
 ### Требования
 
@@ -100,7 +101,7 @@ Windows 10/11 или macOS 12+, микрофон, 250 МБ–3 ГБ на дис�
 
 ### What it is
 
-**F1 Whisper Typing** is **free offline voice typing** and **speech-to-text dictation** for Windows and macOS. It uses **offline Whisper** (faster-whisper) or Sber **GigaAM** on your CPU. No Microsoft/Google cloud required for the local path. No subscription. No hidden fees. No dedicated GPU.
+**FreeScribe-AI** is **free offline voice typing** and **speech-to-text dictation** for Windows and macOS. It uses **offline Whisper** (faster-whisper) or Sber **GigaAM** on your CPU. No Microsoft/Google cloud required for the local path. No subscription. No hidden fees. No dedicated GPU.
 
 Workflow: custom hotkey → speak → the transcript is pasted into the **active window** (Notepad, browser, messengers, Word, IDE).
 
@@ -113,10 +114,11 @@ Workflow: custom hotkey → speak → the transcript is pasted into the **active
 - **Auto-insert into any focused app** — Notepad, Chrome/Edge, Telegram, Slack, email, editors — clipboard + Ctrl+V / Cmd+V.
 - Model catalog: Whisper turbo/small/large and compact GigaAM (~250 MB) for Russian dictation.
 - Optional Groq API for cloud speed; local dictation still works without it.
+- Tray **toast tips** and **start/stop beeps** — toggles in Settings.
 
 ### Install (Windows exe)
 
-1. Download **F1WhisperTyping.exe** from [Releases](https://github.com/EvgPinsk3425/F1WhisperTyping/releases).
+1. Download **FreeScribe-AI.exe** from [Releases](https://github.com/EvgPinsk3425/FreeScribe-AI/releases).
 2. Run it. A microphone icon appears in the system tray (check hidden icons).
 3. Focus a text field, press **Ctrl+F8**, speak, press again.
 4. Text is pasted automatically.
@@ -128,8 +130,8 @@ Workflow: custom hotkey → speak → the transcript is pasted into the **active
 **Windows**
 
 ```powershell
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 py -3.13 -m pip install -r requirements.txt
 py -3.13 main.py
 ```
@@ -137,8 +139,8 @@ py -3.13 main.py
 **macOS**
 
 ```bash
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 chmod +x start.command
 ./start.command
 ```
@@ -151,7 +153,7 @@ Same catalog as in the Russian table above. Download only what you select. First
 
 ### Build
 
-`build.bat` → `dist\F1WhisperTyping.exe`.
+`build.bat` → `dist\FreeScribe-AI.exe`.
 
 ### Requirements
 

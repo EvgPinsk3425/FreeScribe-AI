@@ -9,6 +9,7 @@ import ctypes
 
 from compat import IS_WIN
 from settings import (
+    APP_TITLE,
     APP_UPDATED,
     APP_VERSION,
     MODEL_CATALOG,
@@ -52,7 +53,7 @@ def open_settings_window(current: dict, on_save) -> None:
 
 def _show_window(current: dict, on_save) -> None:
     root = tk.Tk()
-    root.title(f"F1 Whisper Typing — Настройки  {APP_VERSION}")
+    root.title(f"{APP_TITLE} — Настройки  {APP_VERSION}")
     root.resizable(True, True)
     root.attributes("-topmost", True)
     root.columnconfigure(0, weight=1)
@@ -66,7 +67,7 @@ def _show_window(current: dict, on_save) -> None:
 
     header = ttk.Frame(frame)
     header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
-    ttk.Label(header, text="F1 Whisper Typing", font=("", 11, "bold")).pack(side="left")
+    ttk.Label(header, text=APP_TITLE, font=("", 11, "bold")).pack(side="left")
     ttk.Label(header, text=f"{APP_VERSION}  ·  {APP_UPDATED}").pack(side="right")
 
     spec = sanitize_hotkey_spec(current.get("hotkey_spec") or current.get("hotkey") or "ctrl_f8")
@@ -96,9 +97,24 @@ def _show_window(current: dict, on_save) -> None:
     )
     mode_combo.grid(row=2, column=1, sticky="ew", **pad)
 
+    signals = ttk.LabelFrame(frame, text="Сигналы")
+    signals.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=6)
+    toast_var = tk.BooleanVar(value=bool(current.get("show_toasts", True)))
+    beep_var = tk.BooleanVar(value=bool(current.get("record_beeps", True)))
+    ttk.Checkbutton(
+        signals,
+        text="Всплывающие подсказки у иконки",
+        variable=toast_var,
+    ).pack(anchor="w", padx=10, pady=(8, 2))
+    ttk.Checkbutton(
+        signals,
+        text="Звук при старте и окончании записи",
+        variable=beep_var,
+    ).pack(anchor="w", padx=10, pady=(2, 8))
+
     models_box = ttk.LabelFrame(frame, text="Модели")
-    models_box.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=12, pady=6)
-    frame.rowconfigure(3, weight=1)
+    models_box.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=12, pady=6)
+    frame.rowconfigure(4, weight=1)
     models_box.columnconfigure(0, weight=1)
 
     tree = ttk.Treeview(
@@ -233,7 +249,7 @@ def _show_window(current: dict, on_save) -> None:
 
     from audio_recorder import AudioRecorder, list_capture_devices
 
-    ttk.Label(frame, text="Микрофон").grid(row=4, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Микрофон").grid(row=5, column=0, sticky="w", **pad)
     mic_devices = list_capture_devices()
     mic_labels = ["Авто — сначала RDP «Удалённое аудио»"] + [item["label"] for item in mic_devices]
     mic_ids = [""] + [item["id"] for item in mic_devices]
@@ -247,12 +263,12 @@ def _show_window(current: dict, on_save) -> None:
         textvariable=mic_var,
         width=42,
     )
-    mic_combo.grid(row=4, column=1, sticky="ew", **pad)
+    mic_combo.grid(row=5, column=1, sticky="ew", **pad)
     groq_status = tk.StringVar(value="")
 
-    ttk.Label(frame, text="Проверка").grid(row=5, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Проверка").grid(row=6, column=0, sticky="w", **pad)
     mic_row = ttk.Frame(frame)
-    mic_row.grid(row=5, column=1, sticky="ew", **pad)
+    mic_row.grid(row=6, column=1, sticky="ew", **pad)
     level_canvas = tk.Canvas(mic_row, width=220, height=16, highlightthickness=1, highlightbackground="#888")
     level_canvas.pack(side="left")
     mic_check_btn = ttk.Button(mic_row, text="Слушать")
@@ -260,9 +276,9 @@ def _show_window(current: dict, on_save) -> None:
     mic_level_text = tk.StringVar(value="0%")
     ttk.Label(mic_row, textvariable=mic_level_text, width=5).pack(side="left", padx=(6, 0))
 
-    ttk.Label(frame, text="Громкость").grid(row=6, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Громкость").grid(row=7, column=0, sticky="w", **pad)
     gain_row = ttk.Frame(frame)
-    gain_row.grid(row=6, column=1, sticky="ew", **pad)
+    gain_row.grid(row=7, column=1, sticky="ew", **pad)
     try:
         saved_gain = float(current.get("mic_gain") or 1.5)
     except (TypeError, ValueError):
@@ -340,18 +356,18 @@ def _show_window(current: dict, on_save) -> None:
     mic_check_btn.configure(command=toggle_monitor)
     mic_combo.bind("<<ComboboxSelected>>", on_mic_change)
 
-    ttk.Label(frame, text="Groq API-ключ").grid(row=7, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Groq API-ключ").grid(row=8, column=0, sticky="w", **pad)
     groq_var = tk.StringVar(value=current.get("groq_api_key") or "")
     groq_entry = ttk.Entry(frame, textvariable=groq_var, width=36, show="*")
-    groq_entry.grid(row=7, column=1, sticky="ew", **pad)
+    groq_entry.grid(row=8, column=1, sticky="ew", **pad)
 
-    ttk.Label(frame, text="Прокси Groq").grid(row=8, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Прокси Groq").grid(row=9, column=0, sticky="w", **pad)
     proxy_var = tk.StringVar(value=current.get("groq_proxy") or "")
     proxy_entry = ttk.Entry(frame, textvariable=proxy_var, width=36)
-    proxy_entry.grid(row=8, column=1, sticky="ew", **pad)
+    proxy_entry.grid(row=9, column=1, sticky="ew", **pad)
 
     groq_row = ttk.Frame(frame)
-    groq_row.grid(row=9, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
+    groq_row.grid(row=10, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
     test_btn = ttk.Button(groq_row, text="Проверить Groq")
     test_btn.pack(side="left")
     ttk.Label(groq_row, textvariable=groq_status, wraplength=360).pack(side="left", padx=(10, 0))
@@ -363,7 +379,7 @@ def _show_window(current: dict, on_save) -> None:
         "полоска должна прыгать. «Задать…» — клавиша, Esc отменяет."
     )
     ttk.Label(frame, text=hint, justify="left", wraplength=520).grid(
-        row=10, column=0, columnspan=2, sticky="w", padx=12, pady=(4, 10)
+        row=11, column=0, columnspan=2, sticky="w", padx=12, pady=(4, 10)
     )
 
     def stop_capture() -> None:
@@ -545,6 +561,8 @@ def _show_window(current: dict, on_save) -> None:
                 "groq_proxy": proxy_var.get().strip(),
                 "mic_device": _selected_mic_id(),
                 "mic_gain": max(0.2, min(8.0, float(gain_var.get()))),
+                "show_toasts": bool(toast_var.get()),
+                "record_beeps": bool(beep_var.get()),
             }
         )
         root.destroy()
@@ -555,7 +573,7 @@ def _show_window(current: dict, on_save) -> None:
         root.destroy()
 
     buttons = ttk.Frame(frame)
-    buttons.grid(row=11, column=0, columnspan=2, sticky="e", padx=12, pady=(4, 8))
+    buttons.grid(row=12, column=0, columnspan=2, sticky="e", padx=12, pady=(4, 8))
     ttk.Button(buttons, text="Отмена", command=close_window).pack(side="right", padx=(8, 0))
     ttk.Button(buttons, text="Сохранить", command=save).pack(side="right")
 

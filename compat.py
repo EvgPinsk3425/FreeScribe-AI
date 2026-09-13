@@ -8,12 +8,29 @@ from pathlib import Path
 
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
-APP_NAME = "F1WhisperTyping"
+APP_NAME = "FreeScribe-AI"
+APP_TITLE = "FreeScribe-AI"
+_LEGACY_APP_NAMES = ("F1WhisperTyping",)
 
 
 def user_data_dir() -> Path:
     if os.environ.get("APPDATA"):
-        root = Path(os.environ["APPDATA"]) / APP_NAME
+        base = Path(os.environ["APPDATA"])
+        root = base / APP_NAME
+        if not root.is_dir():
+            for legacy in _LEGACY_APP_NAMES:
+                old = base / legacy
+                if old.is_dir() and (old / "settings.json").is_file():
+                    try:
+                        root.mkdir(parents=True, exist_ok=True)
+                        for name in ("settings.json", "app.log"):
+                            src = old / name
+                            dst = root / name
+                            if src.is_file() and not dst.is_file():
+                                dst.write_bytes(src.read_bytes())
+                    except OSError:
+                        pass
+                    break
     elif IS_MAC:
         root = Path.home() / "Library" / "Application Support" / APP_NAME
     else:
@@ -23,7 +40,7 @@ def user_data_dir() -> Path:
 
 
 def show_message(text: str, error: bool = False) -> None:
-    title = "F1 Whisper Typing"
+    title = APP_TITLE
     if IS_WIN:
         import ctypes
 
@@ -52,7 +69,7 @@ def ensure_single_instance() -> bool:
         global _mutex_handle
         kernel32 = ctypes.windll.kernel32
         kernel32.SetLastError(0)
-        _mutex_handle = kernel32.CreateMutexW(None, True, "Local\\F1WhisperTyping")
+        _mutex_handle = kernel32.CreateMutexW(None, True, "Local\\FreeScribe-AI")
         return kernel32.GetLastError() != 183
     lock_path = user_data_dir() / "instance.lock"
     handle = open(lock_path, "a+b")

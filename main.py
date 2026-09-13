@@ -1,7 +1,7 @@
 """
-F1 Whisper Typing — офлайн голосовой набор для Windows и macOS.
+FreeScribe-AI — офлайн голосовой набор для Windows и macOS.
 
-Windows: start.bat или F1WhisperTyping.exe
+Windows: start.bat или FreeScribe-AI.exe
 macOS:   ./start.command  или  python3 main.py
 """
 
@@ -11,7 +11,7 @@ import sys
 from multiprocessing import freeze_support
 from pathlib import Path
 
-from compat import ensure_single_instance, missing_module_hint, show_message, user_data_dir
+from compat import APP_TITLE, ensure_single_instance, missing_module_hint, show_message, user_data_dir
 
 
 def _setup_logging() -> None:
@@ -57,7 +57,7 @@ def main() -> None:
 
     if not ensure_single_instance():
         log.info("already running")
-        show_message("Программа уже запущена.\nИконка — в трее (Windows) или в строке меню (Mac).")
+        show_message(f"{APP_TITLE} уже запущена.\nИконка — в трее (Windows) или в строке меню (Mac).")
         return
 
     log.info("importing app")

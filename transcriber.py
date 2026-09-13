@@ -1,4 +1,4 @@
-"""Офлайн-транскрибация через faster-whisper, опционально Groq."""
+﻿"""Офлайн-транскрибация через faster-whisper, опционально Groq."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def _groq_client(api_key: str, proxy: str = ""):
         "timeout": 30.0,
         "headers": {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "F1WhisperTyping/2.2",
+            "User-Agent": "FreeScribe-AI/2.3",
         },
         "follow_redirects": True,
     }

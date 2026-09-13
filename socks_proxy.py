@@ -1,4 +1,4 @@
-"""Локальный SOCKS5 через userspace WireGuard/WARP — без MSI и без системного VPN."""
+﻿"""Локальный SOCKS5 через userspace WireGuard/WARP — без MSI и без системного VPN."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _search_dirs() -> list[Path]:
     dirs: list[Path] = []
     appdata = os.environ.get("APPDATA")
     if appdata:
-        dirs.append(Path(appdata) / "F1WhisperTyping" / "warp-socks")
+        dirs.append(Path(appdata) / "FreeScribe-AI" / "warp-socks")
     if getattr(sys, "frozen", False):
         dirs.append(Path(sys.executable).resolve().parent / "warp-socks")
         dirs.append(Path(sys.executable).resolve().parent.parent / "warp-socks")

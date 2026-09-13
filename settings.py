@@ -1,4 +1,4 @@
-"""Сохранение настроек в %APPDATA%\\WhisperTyping."""
+"""Сохранение настроек FreeScribe-AI."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-from compat import user_data_dir
+from compat import APP_TITLE, user_data_dir
 
-APP_NAME = "F1WhisperTyping"
-APP_VERSION = "2.2"
-APP_UPDATED = "12.09.2026 19:02"
+APP_NAME = APP_TITLE
+APP_VERSION = "2.3"
+APP_UPDATED = "13.09.2026 12:04"
 
 HOTKEY_OPTIONS = [
     ("f1", "F1", 0x70, 0),
@@ -172,6 +172,8 @@ DEFAULTS = {
     "groq_proxy": "",
     "mic_device": "",
     "mic_gain": 1.5,
+    "show_toasts": True,
+    "record_beeps": True,
 }
 
 MOD_ALT = 0x0001
@@ -388,6 +390,8 @@ def load_settings() -> dict:
         data["mic_gain"] = max(0.2, min(8.0, float(data.get("mic_gain") or DEFAULTS["mic_gain"])))
     except (TypeError, ValueError):
         data["mic_gain"] = DEFAULTS["mic_gain"]
+    data["show_toasts"] = bool(data.get("show_toasts", DEFAULTS["show_toasts"]))
+    data["record_beeps"] = bool(data.get("record_beeps", DEFAULTS["record_beeps"]))
     return data
 
 

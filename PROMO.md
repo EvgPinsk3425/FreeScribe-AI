@@ -1,8 +1,8 @@
-# F1 Whisper Typing — SEO и тексты для продвижения
+﻿# FreeScribe-AI — SEO и тексты для продвижения
 
 Двуязычные материалы: **voice typing**, **offline whisper**, **голосовой ввод**, **диктовка текста**.  
-Репозиторий: https://github.com/EvgPinsk3425/F1WhisperTyping  
-Exe: https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0
+Репозиторий: https://github.com/EvgPinsk3425/FreeScribe-AI  
+Exe: https://github.com/EvgPinsk3425/FreeScribe-AI/releases/tag/v2.3
 
 ---
 
@@ -14,7 +14,7 @@ Exe: https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0
 
 ### Лид
 
-**F1 Whisper Typing** — это программа **голосового ввода** и **диктовки текста**. Вы нажимаете горячую клавишу, говорите в микрофон, и распознанная фраза вставляется в **активное окно**: блокнот, браузер, мессенджер, Word, почту, редактор кода. Распознавание — **офлайн Whisper** (faster-whisper) или GigaAM Сбера на обычном процессоре. **Облачная подписка не нужна.** **Скрытых платежей нет.** **Мощная видеокарта (GPU) не нужна.**
+**FreeScribe-AI** — это программа **голосового ввода** и **диктовки текста**. Вы нажимаете горячую клавишу, говорите в микрофон, и распознанная фраза вставляется в **активное окно**: блокнот, браузер, мессенджер, Word, почту, редактор кода. Распознавание — **офлайн Whisper** (faster-whisper) или GigaAM Сбера на обычном процессоре. **Облачная подписка не нужна.** **Скрытых платежей нет.** **Мощная видеокарта (GPU) не нужна.**
 
 Ищите в GitHub: *голосовой ввод*, *диктовка текста*, *offline whisper*, *voice typing*, *speech to text*, *офлайн распознавание речи*.
 
@@ -48,8 +48,8 @@ Exe: https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0
 
 **Windows, без Python**
 
-1. Откройте [Releases](https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0).
-2. Скачайте `F1WhisperTyping.exe`.
+1. Откройте [Releases](https://github.com/EvgPinsk3425/FreeScribe-AI/releases/tag/v2.0).
+2. Скачайте `FreeScribe-AI.exe`.
 3. Запустите. Иконка — в трее возле часов.
 4. Дождитесь автоскачивания модели (или выберите GigaAM в Настройках).
 5. Поставьте курсор в блокнот или чат, **Ctrl+F8**, диктуйте, **Ctrl+F8**.
@@ -57,8 +57,8 @@ Exe: https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0
 **Windows, из исходников**
 
 ```powershell
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 py -3.13 -m pip install -r requirements.txt
 py -3.13 main.py
 ```
@@ -66,8 +66,8 @@ py -3.13 main.py
 **macOS**
 
 ```bash
-git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git
-cd F1WhisperTyping
+git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git
+cd FreeScribe-AI
 ./start.command
 ```
 
@@ -91,7 +91,7 @@ Free offline voice typing for Windows and macOS — Whisper dictation, no subscr
 
 ### Lead
 
-**F1 Whisper Typing** is **offline voice typing** and **speech-to-text dictation**. Press a **custom hotkey**, speak, and the transcript is pasted into the **active window**: Notepad, browser, messengers, Word, email, IDE. Engine: **offline Whisper** (faster-whisper) or Sber GigaAM on CPU. **No cloud subscription. No hidden fees. No powerful GPU.**
+**FreeScribe-AI** is **offline voice typing** and **speech-to-text dictation**. Press a **custom hotkey**, speak, and the transcript is pasted into the **active window**: Notepad, browser, messengers, Word, email, IDE. Engine: **offline Whisper** (faster-whisper) or Sber GigaAM on CPU. **No cloud subscription. No hidden fees. No powerful GPU.**
 
 GitHub search phrases: *voice typing*, *offline whisper*, *speech to text*, *dictation*, *push to talk*, *local ASR*.
 
@@ -108,9 +108,9 @@ GitHub search phrases: *voice typing*, *offline whisper*, *speech to text*, *dic
 
 ### Install and first launch
 
-Windows exe: download from [v2.0 Release](https://github.com/EvgPinsk3425/F1WhisperTyping/releases/tag/v2.0), run, wait for the model, then Ctrl+F8 in any text field.
+Windows exe: download from [v2.0 Release](https://github.com/EvgPinsk3425/FreeScribe-AI/releases/tag/v2.0), run, wait for the model, then Ctrl+F8 in any text field.
 
-From source: `git clone https://github.com/EvgPinsk3425/F1WhisperTyping.git` then `start.bat` (Windows) or `./start.command` (macOS). On Mac grant Microphone and Accessibility.
+From source: `git clone https://github.com/EvgPinsk3425/FreeScribe-AI.git` then `start.bat` (Windows) or `./start.command` (macOS). On Mac grant Microphone and Accessibility.
 
 ### Keywords (EN)
 
@@ -147,14 +147,14 @@ productivity
 ## Release notes (v2.0)
 
 ```
-F1 Whisper Typing v2.0 — offline voice typing for Windows and macOS
+FreeScribe-AI v2.0 — offline voice typing for Windows and macOS
 
 • Hotkey → speak → paste into Notepad, browser, messengers
 • Offline Whisper on CPU, no GPU, no subscription
 • Custom hotkeys, push-to-talk or toggle
 • First launch auto-downloads the speech model
 • GigaAM (Sber) in Settings for compact Russian dictation
-• Download F1WhisperTyping.exe below (Windows)
+• Download FreeScribe-AI.exe below (Windows)
 • macOS: clone the repo and run start.command
 ```
 
@@ -164,7 +164,7 @@ F1 Whisper Typing v2.0 — offline voice typing for Windows and macOS
 
 **Заголовок:** Бесплатный офлайн голосовой ввод на Whisper: диктовка текста в любое окно без GPU и без подписки
 
-Собрал **F1 Whisper Typing** — **голосовой ввод** и **диктовка текста** для Windows и Mac. Офлайн **Whisper**, без облачной подписки и без видеокарты. Ctrl+F8 — сказал — текст в блокноте, браузере или Telegram. Первый запуск сам качает модель. Исходники и exe: https://github.com/EvgPinsk3425/F1WhisperTyping
+Собрал **FreeScribe-AI** — **голосовой ввод** и **диктовка текста** для Windows и Mac. Офлайн **Whisper**, без облачной подписки и без видеокарты. Ctrl+F8 — сказал — текст в блокноте, браузере или Telegram. Первый запуск сам качает модель. Исходники и exe: https://github.com/EvgPinsk3425/FreeScribe-AI
 
 ---
 
@@ -172,13 +172,13 @@ F1 Whisper Typing v2.0 — offline voice typing for Windows and macOS
 
 **Title:** [Free] Offline voice typing for Windows/macOS — Whisper dictation, no GPU, no subscription
 
-**Body:** F1 Whisper Typing is offline voice typing: hotkey → speak → paste into any app. Local Whisper/GigaAM on CPU. Custom hotkeys. First run downloads the model. MIT. https://github.com/EvgPinsk3425/F1WhisperTyping
+**Body:** FreeScribe-AI is offline voice typing: hotkey → speak → paste into any app. Local Whisper/GigaAM on CPU. Custom hotkeys. First run downloads the model. MIT. https://github.com/EvgPinsk3425/FreeScribe-AI
 
 ---
 
 ## Telegram
 
-🎤 **F1 Whisper Typing** — бесплатный **голосовой ввод** и **диктовка текста**. Офлайн Whisper, без подписки, без GPU. Ctrl+F8 → речь → вставка в любое окно. https://github.com/EvgPinsk3425/F1WhisperTyping
+🎤 **FreeScribe-AI** — бесплатный **голосовой ввод** и **диктовка текста**. Офлайн Whisper, без подписки, без GPU. Ctrl+F8 → речь → вставка в любое окно. https://github.com/EvgPinsk3425/FreeScribe-AI
 
 ---
 
