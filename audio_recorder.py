@@ -180,6 +180,8 @@ def list_capture_devices() -> list[dict]:
             group = 0
         elif item["backend"] == "wavein":
             group = 1
+        elif _is_loopback_like_name(item["name"]):
+            group = 4
         elif any(token in name for token in ("mixed", "stereo mix", "loopback")):
             group = 3
         else:
@@ -188,6 +190,67 @@ def list_capture_devices() -> list[dict]:
 
     devices.sort(key=_rank)
     return devices
+
+
+def _is_remote_capture_name(name: str) -> bool:
+    low = (name or "").lower()
+    return any(token in low for token in ("удален", "remote"))
+
+
+def _is_loopback_like_name(name: str) -> bool:
+    low = (name or "").lower()
+    tokens = (
+        "mixed capture",
+        "stereo mix",
+        "stereomix",
+        "loopback",
+        "переназначение",
+        "what u hear",
+        "wave out mix",
+        "primary sound capture",
+    )
+    return any(token in low for token in tokens)
+
+
+def has_remote_capture_device(devices: list[dict] | None = None) -> bool:
+    items = devices if devices is not None else list_capture_devices()
+    return any(_is_remote_capture_name(item.get("name", "")) for item in items)
+
+
+def mic_rdp_warning(devices: list[dict] | None = None, device_name: str = "") -> str | None:
+    """Подсказка, если RDP не передаёт микрофон с ноутбука — распознавание «угадывает» чужой текст."""
+    items = devices if devices is not None else list_capture_devices()
+    if has_remote_capture_device(items):
+        return None
+    name = (device_name or "").strip()
+    if not name and items:
+        name = str(items[0].get("name") or "")
+    if name and not _is_loopback_like_name(name) and not _is_remote_capture_name(name):
+        return None
+    return (
+        "Сейчас запись не с микрофона ноутбука, а с устройства на сервере "
+        f"({name or 'неизвестно'}) — текст будет «левый».\n\n"
+        "В клиенте RDP: Показать параметры → Локальные ресурсы → Удалённый звук → "
+        "«Запись с этого компьютера». Переподключитесь к RDP.\n"
+        "В настройках FreeScribe выберите «Удалённое аудио» и проверьте «Слушать»."
+    )
+
+
+def _prefer_rdp_wavein(devices: list[dict], picked: dict, device_id: str, device_name: str) -> dict:
+    """Индекс waveIn после RDP часто меняется: wavein:0 был «Удалённое аудио», стал USB."""
+    if picked.get("backend") != "wavein":
+        return picked
+    if device_name and not _is_remote_capture_name(device_name):
+        return picked
+    if not (device_id or "").startswith("wavein:") and not device_name:
+        return picked
+    if _is_remote_capture_name(picked.get("name", "")):
+        return picked
+    for item in devices:
+        if item.get("backend") == "wavein" and _is_remote_capture_name(item.get("name", "")):
+            logger.warning("mic waveIn index changed: %s -> %s", picked["name"], item["name"])
+            return item
+    return picked
 
 
 def _resample_mono(audio: np.ndarray, src_rate: int) -> np.ndarray:
@@ -337,6 +400,7 @@ class AudioRecorder:
         self.sample_rate = sample_rate
         self.channels = channels
         self.device_id = ""
+        self.device_name = ""
         self.gain = 1.0
         self._buffers: list[np.ndarray] = []
         self._lock = threading.Lock()
@@ -348,8 +412,9 @@ class AudioRecorder:
         self._capture_rate = SAMPLE_RATE
         self._level = 0.0
 
-    def configure(self, device_id: str = "", gain: float = 1.0) -> None:
+    def configure(self, device_id: str = "", gain: float = 1.0, device_name: str = "") -> None:
         self.device_id = (device_id or "").strip()
+        self.device_name = (device_name or "").strip()
         try:
             self.gain = max(0.2, min(8.0, float(gain)))
         except (TypeError, ValueError):
@@ -412,11 +477,26 @@ class AudioRecorder:
                 "На Windows: проверьте устройство и запись звука в RDP."
             )
         wanted = self.device_id
-        if wanted:
+        wanted_name = self.device_name
+        picked: dict | None = None
+        if wanted_name:
+            for item in devices:
+                if item["name"] == wanted_name:
+                    picked = item
+                    break
+        if picked is None and wanted:
             for item in devices:
                 if item["id"] == wanted or item["name"] == wanted:
-                    return item
-        return devices[0]
+                    picked = item
+                    break
+        if picked is None:
+            for item in devices:
+                if not _is_loopback_like_name(item.get("name", "")):
+                    picked = item
+                    break
+            if picked is None:
+                picked = devices[0]
+        return _prefer_rdp_wavein(devices, picked, wanted, wanted_name)
 
     def _start_sounddevice(self, item: dict) -> None:
         last_error: Exception | None = None

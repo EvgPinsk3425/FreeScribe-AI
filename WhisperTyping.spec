@@ -29,6 +29,8 @@ hiddenimports = [
     "compat",
     "hotkey_win",
     "injector_win",
+    "updater",
+    "overlay",
 ]
 
 for package in (
@@ -73,7 +75,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

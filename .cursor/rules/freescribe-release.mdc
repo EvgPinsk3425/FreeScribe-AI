@@ -1,0 +1,17 @@
+---
+description: FreeScribe-AI — после правок кода всегда собирать exe и публиковать на GitHub
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# FreeScribe-AI — релиз и exe
+
+При **любом** изменении кода приложения в `c:\Android_Projects\whisper My`:
+
+1. Версия + дата в `settings.py` (`APP_VERSION`, `APP_UPDATED` с `чч:мм`).
+2. Сборка: `py -3.13 -m PyInstaller --noconfirm WhisperTyping.spec` → `release\FreeScribe-AI.exe`.
+3. Тег `v{APP_VERSION}`, push — GitHub Actions прикрепит exe к Release.
+4. В ответе: не использовать старые exe (v2.3 / F1WhisperTyping / release от прошлых месяцев).
+
+Подробности: `project_instruction.md` в корне проекта.

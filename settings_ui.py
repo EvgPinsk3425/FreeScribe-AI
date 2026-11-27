@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 import ctypes
 
-from compat import IS_WIN
+from compat import IS_WIN, is_run_at_startup, set_run_at_startup
 from settings import (
     APP_TITLE,
     APP_UPDATED,
     APP_VERSION,
+    BEEP_MODE_LABELS,
     MODEL_CATALOG,
     VK_CONTROL,
     VK_LCONTROL,
@@ -26,6 +27,7 @@ from settings import (
     format_hotkey,
     is_model_cached,
     is_modifier_vk,
+    model_cache_bytes,
     sanitize_hotkey_spec,
 )
 
@@ -33,7 +35,7 @@ _open_lock = threading.Lock()
 _window_open = False
 
 
-def open_settings_window(current: dict, on_save) -> None:
+def open_settings_window(current: dict, on_save, on_quit=None) -> None:
     global _window_open
     with _open_lock:
         if _window_open:
@@ -43,7 +45,7 @@ def open_settings_window(current: dict, on_save) -> None:
     def run() -> None:
         global _window_open
         try:
-            _show_window(current, on_save)
+            _show_window(current, on_save, on_quit)
         finally:
             with _open_lock:
                 _window_open = False
@@ -51,7 +53,7 @@ def open_settings_window(current: dict, on_save) -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
-def _show_window(current: dict, on_save) -> None:
+def _show_window(current: dict, on_save, on_quit=None) -> None:
     root = tk.Tk()
     root.title(f"{APP_TITLE} — Настройки  {APP_VERSION}")
     root.resizable(True, True)
@@ -68,7 +70,71 @@ def _show_window(current: dict, on_save) -> None:
     header = ttk.Frame(frame)
     header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
     ttk.Label(header, text=APP_TITLE, font=("", 11, "bold")).pack(side="left")
-    ttk.Label(header, text=f"{APP_VERSION}  ·  {APP_UPDATED}").pack(side="right")
+    header_right = ttk.Frame(header)
+    header_right.pack(side="right")
+    update_btn = ttk.Button(header_right, text="Обновить", state="disabled", width=12)
+    update_btn.pack(side="right", padx=(8, 0))
+    ver_label = ttk.Label(header_right, text=f"{APP_VERSION}  {APP_UPDATED}")
+    ver_label.pack(side="right")
+    update_status = tk.StringVar(value="")
+    ttk.Label(header, textvariable=update_status, foreground="#666").pack(side="right", padx=(0, 10))
+
+    latest_holder = {"info": None}
+
+    def _proxy() -> str:
+        return (current.get("groq_proxy") or "").strip()
+
+    def _apply_update_check(info) -> None:
+        latest_holder["info"] = info
+        if info and info.get("url"):
+            update_btn.configure(state="normal")
+            update_status.set(f"есть {info.get('tag')}")
+        elif info and not info.get("url"):
+            update_btn.configure(state="disabled")
+            update_status.set(f"релиз {info.get('tag')} без exe")
+        else:
+            update_btn.configure(state="disabled")
+            update_status.set("актуально")
+
+    def _check_updates() -> None:
+        update_status.set("проверка…")
+
+        def work() -> None:
+            from updater import check_for_update
+
+            newer = check_for_update(_proxy())
+            root.after(0, lambda: _apply_update_check(newer))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _do_update() -> None:
+        info = latest_holder.get("info") or {}
+        url = info.get("url") or ""
+        if not url:
+            update_status.set("нет файла")
+            return
+        update_btn.configure(state="disabled")
+        update_status.set("скачиваю…")
+
+        def work() -> None:
+            from updater import install_exe_update
+
+            def quit_app() -> None:
+                root.after(0, root.destroy)
+                if on_quit:
+                    root.after(200, on_quit)
+
+            msg = install_exe_update(url, _proxy(), on_before_quit=quit_app)
+            if msg != "ok":
+                root.after(0, lambda: (update_status.set("ошибка"), update_btn.configure(state="normal")))
+                root.after(0, lambda m=msg: messagebox.showerror(APP_TITLE, m, parent=root))
+            else:
+                root.after(0, lambda: update_status.set("перезапуск…"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    update_btn.configure(command=_do_update)
+    root.after(400, _check_updates)
 
     spec = sanitize_hotkey_spec(current.get("hotkey_spec") or current.get("hotkey") or "ctrl_f8")
     hotkey_holder = {"spec": spec}
@@ -97,24 +163,41 @@ def _show_window(current: dict, on_save) -> None:
     )
     mode_combo.grid(row=2, column=1, sticky="ew", **pad)
 
-    signals = ttk.LabelFrame(frame, text="Сигналы")
+    signals = ttk.Frame(frame)
     signals.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=6)
+    signals.columnconfigure(1, weight=1)
     toast_var = tk.BooleanVar(value=bool(current.get("show_toasts", True)))
-    beep_var = tk.BooleanVar(value=bool(current.get("record_beeps", True)))
     ttk.Checkbutton(
         signals,
         text="Всплывающие подсказки у иконки",
         variable=toast_var,
-    ).pack(anchor="w", padx=10, pady=(8, 2))
+    ).grid(row=0, column=0, sticky="w", padx=(0, 16))
+    beep_row = ttk.Frame(signals)
+    beep_row.grid(row=0, column=1, sticky="e")
+    ttk.Label(beep_row, text="Сигналы").pack(side="left", padx=(0, 8))
+    beep_mode = current.get("record_beep_mode") or "both"
+    if beep_mode not in BEEP_MODE_LABELS:
+        beep_mode = "both"
+    beep_var = tk.StringVar(value=BEEP_MODE_LABELS[beep_mode])
+    beep_combo = ttk.Combobox(
+        beep_row,
+        state="readonly",
+        values=list(BEEP_MODE_LABELS.values()),
+        textvariable=beep_var,
+        width=36,
+    )
+    beep_combo.pack(side="left")
+
+    startup_var = tk.BooleanVar(value=bool(current.get("run_at_startup", is_run_at_startup())))
     ttk.Checkbutton(
-        signals,
-        text="Звук при старте и окончании записи",
-        variable=beep_var,
-    ).pack(anchor="w", padx=10, pady=(2, 8))
+        frame,
+        text="Запускать при старте Windows" if IS_WIN else "Запускать при входе в систему",
+        variable=startup_var,
+    ).grid(row=4, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 6))
 
     models_box = ttk.LabelFrame(frame, text="Модели")
-    models_box.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=12, pady=6)
-    frame.rowconfigure(4, weight=1)
+    models_box.grid(row=5, column=0, columnspan=2, sticky="nsew", padx=12, pady=6)
+    frame.rowconfigure(5, weight=1)
     models_box.columnconfigure(0, weight=1)
 
     tree = ttk.Treeview(
@@ -140,12 +223,22 @@ def _show_window(current: dict, on_save) -> None:
     selected_model = {"id": current_model}
 
     def _status_for(mid: str) -> str:
+        if downloading["on"] and mid == selected_model["id"]:
+            return "идёт загрузка…"
         cached = is_model_cached(mid)
-        if mid == selected_model["id"] and mid == current_model:
-            return "скачана · текущая" if cached else "текущая · скачается"
-        if mid == selected_model["id"]:
-            return "скачана · выбрана" if cached else "выбрана · скачается"
-        return "скачана" if cached else "не скачана"
+        is_current = mid == current_model
+        is_selected = mid == selected_model["id"]
+        if cached and is_current:
+            return "на диске · текущая"
+        if cached and is_selected:
+            return "на диске · выбрана"
+        if cached:
+            return "на диске"
+        if is_current:
+            return "не на диске · в настройках"
+        if is_selected:
+            return "не на диске · выбрана"
+        return "не на диске"
 
     def _refresh_status() -> None:
         for spec in MODEL_CATALOG:
@@ -189,21 +282,32 @@ def _show_window(current: dict, on_save) -> None:
         _refresh_status()
 
     any_cached = any(is_model_cached(item["id"]) for item in MODEL_CATALOG)
+    groq_on = bool((current.get("groq_api_key") or "").strip())
+    _groq_hint = (
+        " Ключ Groq уже есть — распознавание работает через интернет без локальной модели."
+        if groq_on
+        else ""
+    )
     model_status = tk.StringVar(
         value=(
-            "Скачайте модель и нажмите «Сохранить», чтобы включить её."
+            "Выберите модель и нажмите «Скачать», затем «Сохранить»."
+            + _groq_hint
             if any_cached
-            else "Первый запуск: выберите модель (turbo или GigaAM Сбера) и нажмите «Скачать». "
-            "GigaAM меньше (~250 МБ) и лучше на русском."
+            else "Локальных моделей на диске нет. Нажмите «Скачать» (GigaAM ~250 МБ или turbo ~1.6 ГБ)."
+            + _groq_hint
         )
     )
     models_btns = ttk.Frame(models_box)
-    models_btns.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8))
-    download_btn = ttk.Button(models_btns, text="Скачать выбранную")
+    models_btns.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 4))
+    download_btn = ttk.Button(models_btns, text="Скачать")
     download_btn.pack(side="left")
     ttk.Label(models_btns, textvariable=model_status, wraplength=420).pack(side="left", padx=(10, 0))
 
-    downloading = {"on": False}
+    dl_progress = ttk.Progressbar(models_box, mode="determinate", maximum=100)
+    dl_progress.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8))
+    dl_progress.grid_remove()
+
+    downloading = {"on": False, "poll_after": None}
 
     def download_clicked() -> None:
         mid = selected_model["id"]
@@ -211,13 +315,31 @@ def _show_window(current: dict, on_save) -> None:
         if spec is None or downloading["on"]:
             return
         if is_model_cached(mid):
-            model_status.set(f"{spec['label']} уже скачана")
+            model_status.set(f"{spec['label']} уже на диске")
+            _refresh_status()
             return
         downloading["on"] = True
         download_btn.configure(state="disabled")
-        model_status.set(f"Скачиваю {spec['label']} ({spec['size_label']})…")
+        dl_progress.configure(value=0)
+        dl_progress.grid()
+        model_status.set(f"Скачиваю {spec['label']} ({spec['size_label']})… 0%")
+        _refresh_status()
+
+        def _poll_progress() -> None:
+            if not downloading["on"]:
+                return
+            got = model_cache_bytes(mid)
+            target = max(int(spec.get("size_bytes") or 1), 1)
+            pct = min(99, int(got * 100 / target))
+            dl_progress.configure(value=pct)
+            model_status.set(
+                f"Скачиваю {spec['label']}… {pct}% "
+                f"({got / (1024 * 1024):.0f} / ~{target / (1024 * 1024):.0f} МБ)"
+            )
+            downloading["poll_after"] = root.after(1200, _poll_progress)
 
         def work() -> None:
+            root.after(0, _poll_progress)
             try:
                 download_model(mid)
             except Exception as exc:
@@ -230,11 +352,20 @@ def _show_window(current: dict, on_save) -> None:
 
     def _download_done(ok: bool, error: str) -> None:
         downloading["on"] = False
+        poll = downloading.get("poll_after")
+        if poll is not None:
+            try:
+                root.after_cancel(poll)
+            except Exception:
+                pass
+            downloading["poll_after"] = None
+        dl_progress.grid_remove()
+        dl_progress.configure(value=100 if ok else 0)
         download_btn.configure(state="normal")
         spec = next((item for item in MODEL_CATALOG if item["id"] == selected_model["id"]), None)
         label = spec["label"] if spec else selected_model["id"]
         if ok:
-            model_status.set(f"{label} скачана. Нажмите «Сохранить», чтобы включить.")
+            model_status.set(f"{label} на диске. Нажмите «Сохранить», чтобы включить.")
         else:
             model_status.set(f"Не удалось скачать {label}: {error}")
         _refresh_status()
@@ -249,7 +380,7 @@ def _show_window(current: dict, on_save) -> None:
 
     from audio_recorder import AudioRecorder, list_capture_devices
 
-    ttk.Label(frame, text="Микрофон").grid(row=5, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Микрофон").grid(row=6, column=0, sticky="w", **pad)
     mic_devices = list_capture_devices()
     mic_labels = ["Авто — сначала RDP «Удалённое аудио»"] + [item["label"] for item in mic_devices]
     mic_ids = [""] + [item["id"] for item in mic_devices]
@@ -263,12 +394,12 @@ def _show_window(current: dict, on_save) -> None:
         textvariable=mic_var,
         width=42,
     )
-    mic_combo.grid(row=5, column=1, sticky="ew", **pad)
+    mic_combo.grid(row=6, column=1, sticky="ew", **pad)
     groq_status = tk.StringVar(value="")
 
-    ttk.Label(frame, text="Проверка").grid(row=6, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Проверка").grid(row=7, column=0, sticky="w", **pad)
     mic_row = ttk.Frame(frame)
-    mic_row.grid(row=6, column=1, sticky="ew", **pad)
+    mic_row.grid(row=7, column=1, sticky="ew", **pad)
     level_canvas = tk.Canvas(mic_row, width=220, height=16, highlightthickness=1, highlightbackground="#888")
     level_canvas.pack(side="left")
     mic_check_btn = ttk.Button(mic_row, text="Слушать")
@@ -276,9 +407,9 @@ def _show_window(current: dict, on_save) -> None:
     mic_level_text = tk.StringVar(value="0%")
     ttk.Label(mic_row, textvariable=mic_level_text, width=5).pack(side="left", padx=(6, 0))
 
-    ttk.Label(frame, text="Громкость").grid(row=7, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Громкость").grid(row=8, column=0, sticky="w", **pad)
     gain_row = ttk.Frame(frame)
-    gain_row.grid(row=7, column=1, sticky="ew", **pad)
+    gain_row.grid(row=8, column=1, sticky="ew", **pad)
     try:
         saved_gain = float(current.get("mic_gain") or 1.5)
     except (TypeError, ValueError):
@@ -291,6 +422,15 @@ def _show_window(current: dict, on_save) -> None:
             return mic_ids[mic_labels.index(mic_var.get())]
         except ValueError:
             return ""
+
+    def _selected_mic_name() -> str:
+        try:
+            idx = mic_labels.index(mic_var.get())
+        except ValueError:
+            return ""
+        if idx <= 0:
+            return ""
+        return mic_devices[idx - 1]["name"]
 
     monitor = {"rec": None, "on": False}
 
@@ -356,18 +496,18 @@ def _show_window(current: dict, on_save) -> None:
     mic_check_btn.configure(command=toggle_monitor)
     mic_combo.bind("<<ComboboxSelected>>", on_mic_change)
 
-    ttk.Label(frame, text="Groq API-ключ").grid(row=8, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Groq API-ключ").grid(row=9, column=0, sticky="w", **pad)
     groq_var = tk.StringVar(value=current.get("groq_api_key") or "")
     groq_entry = ttk.Entry(frame, textvariable=groq_var, width=36, show="*")
-    groq_entry.grid(row=8, column=1, sticky="ew", **pad)
+    groq_entry.grid(row=9, column=1, sticky="ew", **pad)
 
-    ttk.Label(frame, text="Прокси Groq").grid(row=9, column=0, sticky="w", **pad)
+    ttk.Label(frame, text="Прокси Groq").grid(row=10, column=0, sticky="w", **pad)
     proxy_var = tk.StringVar(value=current.get("groq_proxy") or "")
     proxy_entry = ttk.Entry(frame, textvariable=proxy_var, width=36)
-    proxy_entry.grid(row=9, column=1, sticky="ew", **pad)
+    proxy_entry.grid(row=10, column=1, sticky="ew", **pad)
 
     groq_row = ttk.Frame(frame)
-    groq_row.grid(row=10, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
+    groq_row.grid(row=11, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
     test_btn = ttk.Button(groq_row, text="Проверить Groq")
     test_btn.pack(side="left")
     ttk.Label(groq_row, textvariable=groq_status, wraplength=360).pack(side="left", padx=(10, 0))
@@ -551,6 +691,17 @@ def _show_window(current: dict, on_save) -> None:
         mode_id = "hold" if mode_var.get() == mode_labels["hold"] else "toggle"
         model_id = selected_model["id"]
         spec_now = sanitize_hotkey_spec(hotkey_holder["spec"])
+        beep_id = "both"
+        for key, label in BEEP_MODE_LABELS.items():
+            if beep_var.get() == label:
+                beep_id = key
+                break
+        want_startup = bool(startup_var.get())
+        try:
+            set_run_at_startup(want_startup)
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Не удалось настроить автозапуск:\n{exc}", parent=root)
+            return
         on_save(
             {
                 "hotkey": spec_now.get("id") or "custom",
@@ -560,9 +711,11 @@ def _show_window(current: dict, on_save) -> None:
                 "groq_api_key": groq_var.get().strip(),
                 "groq_proxy": proxy_var.get().strip(),
                 "mic_device": _selected_mic_id(),
+                "mic_device_name": _selected_mic_name(),
                 "mic_gain": max(0.2, min(8.0, float(gain_var.get()))),
                 "show_toasts": bool(toast_var.get()),
-                "record_beeps": bool(beep_var.get()),
+                "record_beep_mode": beep_id,
+                "run_at_startup": want_startup,
             }
         )
         root.destroy()
@@ -573,7 +726,7 @@ def _show_window(current: dict, on_save) -> None:
         root.destroy()
 
     buttons = ttk.Frame(frame)
-    buttons.grid(row=12, column=0, columnspan=2, sticky="e", padx=12, pady=(4, 8))
+    buttons.grid(row=13, column=0, columnspan=2, sticky="e", padx=12, pady=(4, 8))
     ttk.Button(buttons, text="Отмена", command=close_window).pack(side="right", padx=(8, 0))
     ttk.Button(buttons, text="Сохранить", command=save).pack(side="right")
 

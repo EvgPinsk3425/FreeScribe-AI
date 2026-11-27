@@ -11,9 +11,8 @@ import time
 import wave
 
 import numpy as np
-from faster_whisper import WhisperModel
 
-from settings import get_model, huggingface_network, is_model_cached
+from settings import get_model, hf_snapshot_download, huggingface_network, is_model_cached
 
 DEFAULT_MODEL = "large-v3-turbo"
 LANGUAGE = "ru"
@@ -105,7 +104,11 @@ def find_local_proxy() -> str:
     return ""
 
 
-def _groq_client(api_key: str, proxy: str = ""):
+_groq_client_cache: dict[tuple[str, str], object] = {}
+_groq_client_lock = threading.Lock()
+
+
+def _new_groq_client(api_key: str, proxy: str = ""):
     import httpx
 
     kwargs = {
@@ -133,6 +136,52 @@ def _groq_client(api_key: str, proxy: str = ""):
         if proxy:
             kwargs["proxies"] = proxy
         return httpx.Client(**kwargs)
+
+
+def _groq_client(api_key: str, proxy: str = ""):
+    """Переиспользуемый клиент: без холодного TLS/SOCKS на каждой диктовке."""
+    key = (api_key.strip(), normalize_proxy(proxy))
+    with _groq_client_lock:
+        client = _groq_client_cache.get(key)
+        if client is not None and not getattr(client, "is_closed", True):
+            return client
+        client = _new_groq_client(api_key, proxy)
+        _groq_client_cache[key] = client
+        return client
+
+
+def _drop_groq_client(api_key: str, proxy: str = "") -> None:
+    key = (api_key.strip(), normalize_proxy(proxy))
+    with _groq_client_lock:
+        client = _groq_client_cache.pop(key, None)
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def warmup_groq(api_key: str, proxy: str = "") -> None:
+    """Прогрев соединения с Groq при старте приложения."""
+    key = (api_key or "").strip()
+    if not key:
+        return
+    proxy = normalize_proxy(proxy)
+    if proxy:
+        closed = proxy_reachable(proxy)
+        if closed:
+            logger.info("groq warmup skip: %s", closed[:80])
+            return
+    started = time.perf_counter()
+    try:
+        client = _groq_client(key, proxy)
+        response = client.get(GROQ_MODELS_URL, timeout=10.0)
+        if response.status_code == 200:
+            logger.info("groq warmup ok %.2fs", time.perf_counter() - started)
+        else:
+            logger.info("groq warmup http %s", response.status_code)
+    except Exception:
+        logger.info("groq warmup failed", exc_info=True)
 
 
 def groq_error_text(status: int, body: str) -> str:
@@ -168,8 +217,8 @@ def test_groq(api_key: str, proxy: str = "") -> str:
         if closed:
             return closed
     try:
-        with _groq_client(key, proxy) as client:
-            response = client.get(GROQ_MODELS_URL)
+        client = _groq_client(key, proxy)
+        response = client.get(GROQ_MODELS_URL)
     except GroqError as exc:
         return str(exc)
     except httpx.ProxyError as exc:
@@ -197,23 +246,33 @@ def transcribe_groq(audio: np.ndarray, sample_rate: int, api_key: str, proxy: st
         closed = proxy_reachable(proxy)
         if closed:
             raise GroqError(closed)
-    try:
-        with _groq_client(api_key, proxy) as client:
-            response = client.post(
-                GROQ_URL,
-                files={"file": ("speech.wav", wav, "audio/wav")},
-                data={
-                    "model": "whisper-large-v3-turbo",
-                    "language": LANGUAGE,
-                    "response_format": "json",
-                },
-            )
-    except httpx.ProxyError as exc:
-        raise GroqError(f"Прокси не работает: {exc}") from exc
-    except httpx.TimeoutException as exc:
-        raise GroqError("Groq не отвечает (таймаут). Проверьте интернет или VPN.") from exc
-    except Exception as exc:
-        raise GroqError(f"Сеть Groq: {exc}") from exc
+    payload = {
+        "files": {"file": ("speech.wav", wav, "audio/wav")},
+        "data": {
+            "model": "whisper-large-v3-turbo",
+            "language": LANGUAGE,
+            "response_format": "json",
+        },
+    }
+    response = None
+    for attempt in range(2):
+        try:
+            client = _groq_client(api_key, proxy)
+            response = client.post(GROQ_URL, **payload)
+            break
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as exc:
+            if attempt:
+                raise GroqError(f"Сеть Groq: {exc}") from exc
+            _drop_groq_client(api_key, proxy)
+            logger.info("groq reconnect after %s", type(exc).__name__)
+        except httpx.ProxyError as exc:
+            raise GroqError(f"Прокси не работает: {exc}") from exc
+        except httpx.TimeoutException as exc:
+            raise GroqError("Groq не отвечает (таймаут). Проверьте интернет или VPN.") from exc
+        except Exception as exc:
+            raise GroqError(f"Сеть Groq: {exc}") from exc
+    if response is None:
+        raise GroqError("Сеть Groq: нет ответа")
     if response.status_code != 200:
         logger.warning("groq http %s %s", response.status_code, response.text[:300])
         raise GroqError(groq_error_text(response.status_code, response.text))
@@ -226,6 +285,7 @@ class Transcriber:
     def __init__(self, model_size: str = DEFAULT_MODEL, autoload: bool = True):
         self.model_size = model_size
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
         self._model = None
         self._engine = "faster-whisper"
         self.ready = False
@@ -234,14 +294,15 @@ class Transcriber:
             self.load_model()
 
     def load_model(self, local_only: bool = False) -> None:
-        with self._lock:
-            self.ready = False
-            self.error = None
-            self._model = None
+        with self._load_lock:
             spec = get_model(self.model_size)
             engine = spec.get("engine") or "faster-whisper"
-            self._engine = engine
             threads = min(8, max(4, os.cpu_count() or 4))
+            with self._lock:
+                self.ready = False
+                self.error = None
+                self._model = None
+                self._engine = engine
             logger.info(
                 "loading model %s engine=%s local_only=%s threads=%s",
                 self.model_size,
@@ -251,9 +312,11 @@ class Transcriber:
             )
             try:
                 if engine == "onnx-asr":
-                    self._model = self._load_onnx(spec, local_only)
+                    model = self._load_onnx(spec, local_only)
                 else:
-                    self._model = WhisperModel(
+                    from faster_whisper import WhisperModel
+
+                    model = WhisperModel(
                         spec.get("source") or self.model_size,
                         device="cpu",
                         compute_type="int8",
@@ -261,11 +324,16 @@ class Transcriber:
                         num_workers=1,
                         local_files_only=local_only,
                     )
-                self.ready = True
+                with self._lock:
+                    self._model = model
+                    self.ready = True
+                    self.error = None
                 logger.info("model %s ready", self.model_size)
             except Exception as exc:
-                self._model = None
-                self.error = str(exc)
+                with self._lock:
+                    self._model = None
+                    self.ready = False
+                    self.error = str(exc)
                 logger.exception("failed to load model %s", self.model_size)
 
     def _load_onnx(self, spec: dict, local_only: bool):
@@ -275,8 +343,6 @@ class Transcriber:
             raise RuntimeError(
                 "Для модели Сбера нужен пакет onnx-asr. Установите: pip install \"onnx-asr[cpu,hub]\""
             ) from exc
-        from huggingface_hub import snapshot_download
-
         path = None
         repo = spec.get("repo")
         if repo:
@@ -286,10 +352,10 @@ class Transcriber:
                 kwargs["allow_patterns"] = patterns
             try:
                 if local_only:
-                    path = snapshot_download(**kwargs)
+                    path = hf_snapshot_download(**kwargs)
                 else:
                     with huggingface_network():
-                        path = snapshot_download(**kwargs)
+                        path = hf_snapshot_download(**kwargs)
             except Exception:
                 if local_only:
                     raise

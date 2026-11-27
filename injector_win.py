@@ -119,19 +119,23 @@ def capture_target() -> tuple[int, int]:
     return hwnd, focus
 
 
-def _open_clipboard(retries: int = 20) -> bool:
-    for _ in range(retries):
-        if user32.OpenClipboard(None):
+def _open_clipboard(owner: int = 0, retries: int = 40) -> bool:
+    hwnd = owner or None
+    for attempt in range(retries):
+        if user32.OpenClipboard(hwnd):
             return True
+        err = ctypes.get_last_error()
+        if attempt and attempt % 8 == 0:
+            logger.debug("OpenClipboard retry err=%s owner=%s", err, owner)
         time.sleep(0.05)
-    logger.warning("OpenClipboard failed err=%s", ctypes.get_last_error())
+    logger.warning("OpenClipboard failed err=%s owner=%s", ctypes.get_last_error(), owner)
     return False
 
 
-def _clipboard_get() -> str:
+def _clipboard_get(owner: int = 0) -> str:
     if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
         return ""
-    if not _open_clipboard():
+    if not _open_clipboard(owner):
         return ""
     try:
         handle = user32.GetClipboardData(CF_UNICODETEXT)
@@ -148,7 +152,7 @@ def _clipboard_get() -> str:
         user32.CloseClipboard()
 
 
-def _clipboard_set(text: str) -> None:
+def _clipboard_set_win32(text: str, owner: int = 0) -> None:
     data = text.encode("utf-16-le") + b"\x00\x00"
     handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
     if not handle:
@@ -160,7 +164,8 @@ def _clipboard_set(text: str) -> None:
         ctypes.memmove(ptr, data, len(data))
     finally:
         kernel32.GlobalUnlock(handle)
-    if not _open_clipboard():
+    if not _open_clipboard(owner):
+        kernel32.GlobalFree(handle)
         raise RuntimeError("OpenClipboard failed")
     try:
         user32.EmptyClipboard()
@@ -169,6 +174,18 @@ def _clipboard_set(text: str) -> None:
         handle = None
     finally:
         user32.CloseClipboard()
+
+
+def _clipboard_set(text: str, owner: int = 0) -> None:
+    try:
+        import pyperclip
+
+        pyperclip.copy(text)
+        if _clipboard_get(owner) == text:
+            return
+    except Exception:
+        logger.debug("pyperclip.copy", exc_info=True)
+    _clipboard_set_win32(text, owner)
 
 
 def _restore_focus(hwnd: int, focus: int) -> int:
@@ -213,17 +230,37 @@ def _send_ctrl_v() -> None:
         logger.warning("SendInput ctrl+v sent=%s err=%s", sent, ctypes.get_last_error())
 
 
-def inject_text(text: str, hwnd: int = 0, focus: int = 0) -> None:
+def _paste_to_target(target: int) -> bool:
+    if not target:
+        return False
+    try:
+        user32.SendMessageW(target, WM_PASTE, 0, 0)
+        return True
+    except Exception:
+        logger.debug("WM_PASTE", exc_info=True)
+    return False
+
+
+def inject_text(
+    text: str,
+    hwnd: int = 0,
+    focus: int = 0,
+    *,
+    clipboard_owner: int = 0,
+) -> None:
     if not text:
         return
+    owner = clipboard_owner or 0
     try:
-        _clipboard_set(text)
-        got = _clipboard_get()
+        _clipboard_set(text, owner)
+        got = _clipboard_get(owner)
         logger.info("clipboard keep ok=%s chars=%s", got == text, len(got))
         if got != text:
-            _clipboard_set(text)
-            got = _clipboard_get()
+            _clipboard_set_win32(text, owner)
+            got = _clipboard_get(owner)
             logger.info("clipboard retry ok=%s chars=%s", got == text, len(got))
+        if got != text:
+            raise RuntimeError("Текст не попал в буфер обмена (занят другой программой?)")
     except Exception:
         logger.exception("clipboard set")
         raise
@@ -233,7 +270,16 @@ def inject_text(text: str, hwnd: int = 0, focus: int = 0) -> None:
     use_hwnd = now_hwnd or hwnd
     use_focus = now_focus or focus
     target = _restore_focus(use_hwnd, use_focus)
-    logger.info("paste to hwnd=%s focus=%s keep_clipboard=1", use_hwnd, target)
+    paste_hwnd = use_focus or target or use_hwnd
+    logger.info(
+        "paste to hwnd=%s focus=%s owner=%s keep_clipboard=1",
+        use_hwnd,
+        paste_hwnd,
+        owner,
+    )
     time.sleep(0.08)
+    if _paste_to_target(paste_hwnd):
+        time.sleep(0.12)
+        return
     _send_ctrl_v()
     time.sleep(0.2)

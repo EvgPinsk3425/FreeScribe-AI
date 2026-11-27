@@ -12,8 +12,8 @@ from pathlib import Path
 from compat import APP_TITLE, user_data_dir
 
 APP_NAME = APP_TITLE
-APP_VERSION = "2.3"
-APP_UPDATED = "13.09.2026 12:04"
+APP_VERSION = "2.17"
+APP_UPDATED = "27.11.2026 10:22"
 
 HOTKEY_OPTIONS = [
     ("f1", "F1", 0x70, 0),
@@ -171,9 +171,18 @@ DEFAULTS = {
     "groq_api_key": "",
     "groq_proxy": "",
     "mic_device": "",
+    "mic_device_name": "",
     "mic_gain": 1.5,
     "show_toasts": True,
-    "record_beeps": True,
+    "record_beep_mode": "both",
+    "run_at_startup": False,
+    "max_record_sec": 300,
+}
+
+BEEP_MODE_LABELS = {
+    "start": "Звук при старте",
+    "stop": "Звук при окончании",
+    "both": "Звук и при старте, и при окончании",
 }
 
 MOD_ALT = 0x0001
@@ -229,6 +238,17 @@ _VK_NAMES = {
     0x5D: "Menu",
     0x90: "Num Lock",
     0x91: "Scroll Lock",
+    0xC0: "Ё",
+    0xBA: ";",
+    0xBB: "=",
+    0xBC: ",",
+    0xBD: "-",
+    0xBE: ".",
+    0xBF: "/",
+    0xDB: "[",
+    0xDC: "\\",
+    0xDD: "]",
+    0xDE: "'",
     VK_LCONTROL: "Левый Ctrl",
     VK_RCONTROL: "Правый Ctrl",
     VK_LSHIFT: "Левый Shift",
@@ -386,12 +406,28 @@ def load_settings() -> dict:
         data["groq_proxy"] = ""
     if not isinstance(data.get("mic_device"), str):
         data["mic_device"] = ""
+    if not isinstance(data.get("mic_device_name"), str):
+        data["mic_device_name"] = ""
     try:
         data["mic_gain"] = max(0.2, min(8.0, float(data.get("mic_gain") or DEFAULTS["mic_gain"])))
     except (TypeError, ValueError):
         data["mic_gain"] = DEFAULTS["mic_gain"]
     data["show_toasts"] = bool(data.get("show_toasts", DEFAULTS["show_toasts"]))
-    data["record_beeps"] = bool(data.get("record_beeps", DEFAULTS["record_beeps"]))
+    mode = data.get("record_beep_mode")
+    if mode not in BEEP_MODE_LABELS:
+        # миграция со старого флажка record_beeps
+        if "record_beeps" in data and not data.get("record_beeps"):
+            mode = "both"
+        else:
+            mode = DEFAULTS["record_beep_mode"]
+    data["record_beep_mode"] = mode
+    data.pop("record_beeps", None)
+    data["run_at_startup"] = bool(data.get("run_at_startup", DEFAULTS["run_at_startup"]))
+    try:
+        data["max_record_sec"] = int(data.get("max_record_sec") or DEFAULTS["max_record_sec"])
+    except (TypeError, ValueError):
+        data["max_record_sec"] = DEFAULTS["max_record_sec"]
+    data["max_record_sec"] = max(60, min(900, data["max_record_sec"]))
     return data
 
 
@@ -433,6 +469,26 @@ def is_model_cached(model_id: str) -> bool:
     return False
 
 
+def model_cache_bytes(model_id: str) -> int:
+    """Сколько байт уже лежит в кэше Hugging Face (в т.ч. недокачанное)."""
+    spec = get_model(model_id)
+    total = 0
+    for name in spec.get("hf_folders") or []:
+        folder = _hub_dir() / name
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.name.endswith(".incomplete"):
+                continue
+            try:
+                total += path.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
 def cached_models() -> set[str]:
     return {item["id"] for item in MODEL_CATALOG if is_model_cached(item["id"])}
 
@@ -460,7 +516,7 @@ _PROXY_ENV = (
 @contextmanager
 def huggingface_network():
     """Hugging Face через рабочий SOCKS, а не через мёртвый системный HTTP-прокси."""
-    keys = _PROXY_ENV + ("HF_HUB_DISABLE_XET",)
+    keys = _PROXY_ENV + ("HF_HUB_DISABLE_XET", "HF_HUB_DISABLE_PROGRESS_BARS")
     old = {key: os.environ.get(key) for key in keys}
     try:
         proxy = ""
@@ -479,6 +535,7 @@ def huggingface_network():
             for key in _PROXY_ENV:
                 os.environ.pop(key, None)
         os.environ["HF_HUB_DISABLE_XET"] = "1"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         yield
     finally:
         for key, value in old.items():
@@ -488,12 +545,20 @@ def huggingface_network():
                 os.environ[key] = value
 
 
+def hf_snapshot_download(**kwargs):
+    """snapshot_download с HF tqdm — иначе onnx_asr ломает exe (stdout=None)."""
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.utils import tqdm as hf_tqdm
+
+    kwargs.setdefault("tqdm_class", hf_tqdm)
+    return snapshot_download(**kwargs)
+
+
 def download_model(model_id: str) -> None:
     spec = get_model(model_id)
     repo = spec.get("repo")
     if not repo:
         raise RuntimeError(f"Для модели {model_id} не указан репозиторий")
-    from huggingface_hub import snapshot_download
 
     kwargs = {"repo_id": repo}
     patterns = spec.get("allow_patterns")
@@ -501,7 +566,7 @@ def download_model(model_id: str) -> None:
         kwargs["allow_patterns"] = patterns
     try:
         with huggingface_network():
-            snapshot_download(**kwargs)
+            hf_snapshot_download(**kwargs)
     except Exception as exc:
         text = str(exc)
         if "10061" in text or "ConnectError" in text:

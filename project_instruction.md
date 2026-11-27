@@ -20,7 +20,9 @@
 
 ## Сигналы
 
-В настройках: «Всплывающие подсказки у иконки» и «Звук при старте и окончании записи».
+В настройках: подсказки у иконки и список «Сигналы» (звук при старте / окончании / оба).
+Кнопка «Обновить» рядом с версией — скачивает новый exe с GitHub Releases.
+Птичка «Запускать при старте» — автозапуск с Windows.
 
 ## Где лежат данные
 
@@ -30,8 +32,20 @@
 
 ## Сборка и GitHub
 
-`build.bat` → `dist\FreeScribe-AI.exe`, копия в `release\`. При теге `v*` GitHub Actions собирает Windows-файл. Репозиторий: FreeScribe-AI. Тексты: README.md и PROMO.md.
+`build.bat` → `dist\FreeScribe-AI.exe`, копия в `release\FreeScribe-AI.exe`. При теге `v*` GitHub Actions публикует exe в Releases. Репозиторий: **EvgPinsk3425/FreeScribe-AI**.
+
+### Обязательно для агента (при любом изменении кода)
+
+После правок Python/UI, влияющих на поведение приложения:
+
+1. Поднять **APP_VERSION** и **APP_UPDATED** (`дд.мм.гггг чч:мм`) в `settings.py` (и в UI, если версия там видна).
+2. **Собрать exe**: `py -3.13 -m PyInstaller --noconfirm WhisperTyping.spec` (или `build.bat` без `pause`).
+3. Скопировать в `release\FreeScribe-AI.exe` (build.bat делает это сам).
+4. **GitHub Releases**: закоммитить исходники, тег `vX.Y` (как **APP_VERSION**), `git push origin` и `git push origin vX.Y` — workflow прикрепит exe к релизу. Имя файла в релизе: **FreeScribe-AI.exe** (не F1WhisperTyping).
+5. В ответе пользователю: версия, дата/время, что копировать на сервер/новый ПК — только свежий `release\FreeScribe-AI.exe`, не старые сборки.
+
+Пользователям **не отдавать** старые exe с GitHub (например v2.3 / F1WhisperTyping) — только актуальный тег.
 
 ## Версия
 
-`APP_VERSION` и `APP_UPDATED` в `settings.py`, шапка окна настроек.
+На Windows Server иконка трея часто прячется за стрелкой ▲ у часов. При записи сверху экрана красная плашка «FreeScribe-AI · запись» (системный значок микрофона Windows — это не иконка программы).

@@ -124,6 +124,7 @@ class HotkeyManager:
         self._thread: threading.Thread | None = None
         self._thread_id = 0
         self._ready = threading.Event()
+        self._stopping = False
 
     def attach(self, icon=None) -> None:
         self._start_hook_thread()
@@ -148,6 +149,7 @@ class HotkeyManager:
         self.attach(icon)
 
     def stop(self) -> None:
+        self._stopping = True
         tid = self._thread_id
         if tid:
             user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
@@ -161,6 +163,7 @@ class HotkeyManager:
     def _start_hook_thread(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._stopping = False
         self._ready.clear()
         self._thread = threading.Thread(target=self._hook_loop, name="hotkey-hook", daemon=True)
         self._thread.start()
@@ -168,24 +171,35 @@ class HotkeyManager:
             raise RuntimeError("поток горячих клавиш не запустился")
 
     def _hook_loop(self) -> None:
-        self._thread_id = kernel32.GetCurrentThreadId()
-        dummy = MSG()
-        user32.PeekMessageW(ctypes.byref(dummy), None, 0, 0, 0)
-        if not self._install_hook():
-            self._ready.set()
-            return
-        logger.info("keyboard hook ok spec=%s thread=%s", format_hotkey(self._spec), self._thread_id)
-        self._ready.set()
-        if self._on_registered:
-            try:
-                self._on_registered(self._hotkey_id)
-            except Exception:
-                logger.exception("on_registered")
-        msg = MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-        self._uninstall_hook()
+        signaled = False
+        while not self._stopping:
+            self._thread_id = kernel32.GetCurrentThreadId()
+            dummy = MSG()
+            user32.PeekMessageW(ctypes.byref(dummy), None, 0, 0, 0)
+            if not self._install_hook():
+                if not signaled:
+                    self._ready.set()
+                    signaled = True
+                time.sleep(1.5)
+                continue
+            logger.info("keyboard hook ok spec=%s thread=%s", format_hotkey(self._spec), self._thread_id)
+            if not signaled:
+                self._ready.set()
+                signaled = True
+                if self._on_registered:
+                    try:
+                        self._on_registered(self._hotkey_id)
+                    except Exception:
+                        logger.exception("on_registered")
+            msg = MSG()
+            while not self._stopping and user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+            self._uninstall_hook()
+            if self._stopping:
+                break
+            logger.warning("keyboard hook loop ended, reinstall")
+            time.sleep(0.4)
 
     def _install_hook(self) -> bool:
         self._hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._hook_proc, None, 0)
@@ -221,9 +235,12 @@ class HotkeyManager:
         return vk == want
 
     def _mod_is_down(self, name: str, *vks: int) -> bool:
-        if self._mods.get(name):
+        async_down = any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in vks)
+        if async_down:
+            self._mods[name] = True
             return True
-        return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in vks)
+        # Fallback: состояние из LL-хука (в RDP GetAsyncKeyState иногда отстаёт)
+        return bool(self._mods.get(name))
 
     def _combo_down(self, vk: int, extended: bool) -> bool:
         if not self._is_trigger_vk(vk, extended):
@@ -245,29 +262,35 @@ class HotkeyManager:
         try:
             if nCode == HC_ACTION:
                 info = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-                if info.flags & LLKHF_INJECTED:
-                    return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
                 is_up = wParam in (WM_KEYUP, WM_SYSKEYUP)
                 is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
                 if is_down or is_up:
+                    # Модификаторы обновляем всегда — в т.ч. для injected (RDP/SendInput),
+                    # иначе Ctrl «теряется» и комбинация перестаёт срабатывать.
                     self._update_mods(info.vkCode, is_down)
+                if info.flags & LLKHF_INJECTED:
+                    return user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
                 now = time.monotonic()
                 if self._key_held and (now - self._held_since) > 0.8:
                     self._key_held = False
                 if is_down and self._combo_down(info.vkCode, bool(info.flags & LLKHF_EXTENDED)):
+                    fired = False
                     if self._hold_mode:
                         if not self._key_held:
                             self._key_held = True
                             self._held_since = now
                             logger.info("hotkey down spec=%s vk=0x%X", format_hotkey(self._spec), info.vkCode)
                             threading.Thread(target=self._on_press, daemon=True).start()
+                            fired = True
                     elif (now - self._last_fire) >= 0.28:
                         self._last_fire = now
                         self._key_held = True
                         self._held_since = now
                         logger.info("hotkey down spec=%s vk=0x%X", format_hotkey(self._spec), info.vkCode)
                         threading.Thread(target=self._on_press, daemon=True).start()
-                    return 1
+                        fired = True
+                    if fired:
+                        return 1
                 if is_up and self._is_trigger_vk(info.vkCode, bool(info.flags & LLKHF_EXTENDED)):
                     was_held = self._key_held
                     self._key_held = False
