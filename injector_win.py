@@ -89,6 +89,18 @@ user32.GetClipboardData.argtypes = [wintypes.UINT]
 user32.GetClipboardData.restype = wintypes.HANDLE
 user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
 user32.IsClipboardFormatAvailable.restype = wintypes.BOOL
+user32.IsWindow.argtypes = [wintypes.HWND]
+user32.IsWindow.restype = wintypes.BOOL
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetClassNameW.restype = ctypes.c_int
+user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+user32.AllowSetForegroundWindow.restype = wintypes.BOOL
+user32.keybd_event.argtypes = [
+    ctypes.c_ubyte,
+    ctypes.c_ubyte,
+    wintypes.DWORD,
+    ctypes.c_size_t,
+]
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
 kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
@@ -188,9 +200,35 @@ def _clipboard_set(text: str, owner: int = 0) -> None:
     _clipboard_set_win32(text, owner)
 
 
+_WM_PASTE_CLASSES = frozenset(
+    {"edit", "richedit", "richedit20w", "richedit50w", "scintilla", "syslistview32"}
+)
+
+
+def _hwnd_valid(hwnd: int) -> bool:
+    return bool(hwnd) and bool(user32.IsWindow(hwnd))
+
+
+def _class_name(hwnd: int) -> str:
+    if not hwnd:
+        return ""
+    buf = ctypes.create_unicode_buffer(256)
+    if user32.GetClassNameW(hwnd, buf, 256) <= 0:
+        return ""
+    return buf.value.lower()
+
+
+def _supports_wm_paste(hwnd: int) -> bool:
+    name = _class_name(hwnd)
+    if not name:
+        return False
+    return any(name == c or name.startswith(c) for c in _WM_PASTE_CLASSES)
+
+
 def _restore_focus(hwnd: int, focus: int) -> int:
     target = focus or hwnd
     if hwnd:
+        user32.AllowSetForegroundWindow(0xFFFFFFFF)
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, SW_RESTORE)
         user32.SetForegroundWindow(hwnd)
@@ -211,34 +249,50 @@ def _restore_focus(hwnd: int, focus: int) -> int:
     return target
 
 
-def _send_ctrl_v() -> None:
+def _send_ctrl_v(hwnd: int = 0) -> bool:
     def key(vk: int, up: bool = False) -> INPUT:
         inp = INPUT()
         inp.type = INPUT_KEYBOARD
         inp.ki = KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP if up else 0, 0, 0)
         return inp
 
-    events = (INPUT * 5)(
-        key(VK_CONTROL, True),
-        key(VK_CONTROL),
-        key(VK_V),
-        key(VK_V, True),
-        key(VK_CONTROL, True),
-    )
-    sent = user32.SendInput(5, events, ctypes.sizeof(INPUT))
-    if sent != 5:
+    my_tid = kernel32.GetCurrentThreadId()
+    fg_tid = 0
+    attached = False
+    if hwnd:
+        pid = wintypes.DWORD()
+        fg_tid = user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if fg_tid and fg_tid != my_tid:
+            attached = bool(user32.AttachThreadInput(my_tid, fg_tid, True))
+    try:
+        events = (INPUT * 4)(
+            key(VK_CONTROL),
+            key(VK_V),
+            key(VK_V, True),
+            key(VK_CONTROL, True),
+        )
+        sent = user32.SendInput(4, events, ctypes.sizeof(INPUT))
+        if sent == 4:
+            return True
         logger.warning("SendInput ctrl+v sent=%s err=%s", sent, ctypes.get_last_error())
+        user32.keybd_event(VK_CONTROL, 0, 0, 0)
+        user32.keybd_event(VK_V, 0, 0, 0)
+        user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+        return True
+    finally:
+        if attached and fg_tid:
+            user32.AttachThreadInput(my_tid, fg_tid, False)
 
 
-def _paste_to_target(target: int) -> bool:
-    if not target:
-        return False
+def _try_wm_paste(target: int) -> None:
+    if not target or not _supports_wm_paste(target):
+        return
     try:
         user32.SendMessageW(target, WM_PASTE, 0, 0)
-        return True
+        logger.debug("WM_PASTE class=%s hwnd=%s", _class_name(target), target)
     except Exception:
         logger.debug("WM_PASTE", exc_info=True)
-    return False
 
 
 def inject_text(
@@ -264,22 +318,25 @@ def inject_text(
     except Exception:
         logger.exception("clipboard set")
         raise
-    if not hwnd:
-        hwnd, focus = capture_target()
-    now_hwnd, now_focus = capture_target()
-    use_hwnd = now_hwnd or hwnd
-    use_focus = now_focus or focus
+    saved_hwnd, saved_focus = hwnd, focus
+    if not _hwnd_valid(saved_hwnd):
+        saved_hwnd, saved_focus = capture_target()
+    elif not _hwnd_valid(saved_focus):
+        saved_focus = 0
+    use_hwnd, use_focus = saved_hwnd, saved_focus
     target = _restore_focus(use_hwnd, use_focus)
     paste_hwnd = use_focus or target or use_hwnd
     logger.info(
-        "paste to hwnd=%s focus=%s owner=%s keep_clipboard=1",
+        "paste saved_hwnd=%s saved_focus=%s focus_after=%s class=%s",
         use_hwnd,
+        use_focus,
         paste_hwnd,
-        owner,
+        _class_name(paste_hwnd),
     )
-    time.sleep(0.08)
-    if _paste_to_target(paste_hwnd):
-        time.sleep(0.12)
-        return
-    _send_ctrl_v()
-    time.sleep(0.2)
+    time.sleep(0.1)
+    # Для Chrome/Cursor и т.п. WM_PASTE не работает — обязателен Ctrl+V; для Edit — достаточно WM_PASTE.
+    if _supports_wm_paste(paste_hwnd):
+        _try_wm_paste(paste_hwnd)
+    else:
+        _send_ctrl_v(use_hwnd)
+    time.sleep(0.15)
