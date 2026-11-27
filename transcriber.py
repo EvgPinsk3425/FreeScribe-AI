@@ -286,6 +286,7 @@ class Transcriber:
         self.model_size = model_size
         self._lock = threading.Lock()
         self._load_lock = threading.Lock()
+        self._ready_event = threading.Event()
         self._model = None
         self._engine = "faster-whisper"
         self.ready = False
@@ -293,8 +294,37 @@ class Transcriber:
         if autoload:
             self.load_model()
 
+    def wait_until_ready(self, timeout: float = 120.0) -> bool:
+        """Ждать загрузки модели без паузы в 1 с (частая причина задержки перед первой вставкой)."""
+        if self.ready:
+            return True
+        deadline = time.perf_counter() + timeout
+        while time.perf_counter() < deadline:
+            if self.ready:
+                return True
+            if self.error:
+                return False
+            self._ready_event.wait(timeout=0.08)
+        return self.ready
+
+    def _warmup_inference(self) -> None:
+        """Первый прогон faster-whisper на CPU даёт +2–4 с — делаем до первой диктовки."""
+        if self._model is None:
+            return
+        started = time.perf_counter()
+        chunk = np.zeros(int(16000 * 0.12), dtype=np.float32)
+        try:
+            if self._engine == "onnx-asr":
+                self._transcribe_onnx(chunk, 16000)
+            else:
+                self._transcribe_whisper(chunk, 16000, 0.12)
+            logger.info("model warmup %.2fs model=%s", time.perf_counter() - started, self.model_size)
+        except Exception:
+            logger.exception("model warmup")
+
     def load_model(self, local_only: bool = False) -> None:
         with self._load_lock:
+            self._ready_event.clear()
             spec = get_model(self.model_size)
             engine = spec.get("engine") or "faster-whisper"
             threads = min(8, max(4, os.cpu_count() or 4))
@@ -326,6 +356,9 @@ class Transcriber:
                     )
                 with self._lock:
                     self._model = model
+                    self._engine = engine
+                self._warmup_inference()
+                with self._lock:
                     self.ready = True
                     self.error = None
                 logger.info("model %s ready", self.model_size)
@@ -335,6 +368,8 @@ class Transcriber:
                     self.ready = False
                     self.error = str(exc)
                 logger.exception("failed to load model %s", self.model_size)
+            finally:
+                self._ready_event.set()
 
     def _load_onnx(self, spec: dict, local_only: bool):
         try:

@@ -12,8 +12,8 @@ from pathlib import Path
 from compat import APP_TITLE, user_data_dir
 
 APP_NAME = APP_TITLE
-APP_VERSION = "2.18"
-APP_UPDATED = "27.11.2026 12:25"
+APP_VERSION = "2.19"
+APP_UPDATED = "27.11.2026 17:23"
 
 HOTKEY_OPTIONS = [
     ("f1", "F1", 0x70, 0),

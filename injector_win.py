@@ -333,10 +333,10 @@ def inject_text(
         paste_hwnd,
         _class_name(paste_hwnd),
     )
-    time.sleep(0.1)
+    time.sleep(0.05)
     # Для Chrome/Cursor и т.п. WM_PASTE не работает — обязателен Ctrl+V; для Edit — достаточно WM_PASTE.
     if _supports_wm_paste(paste_hwnd):
         _try_wm_paste(paste_hwnd)
     else:
         _send_ctrl_v(use_hwnd)
-    time.sleep(0.15)
+    time.sleep(0.06)

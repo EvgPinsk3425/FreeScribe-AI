@@ -562,10 +562,10 @@ class WhisperTrayApp:
 
     def _inject_on_ui_thread(self, text: str, hwnd: int, focus: int) -> None:
         """Вставка с потока иконки трея — иначе OpenClipboard/SendInput часто ломаются в RDP."""
-        for _ in range(60):
+        for _ in range(20):
             if getattr(self._icon, "_hwnd", None):
                 break
-            time.sleep(0.05)
+            time.sleep(0.02)
         done = threading.Event()
         err: list[BaseException] = []
 
@@ -586,6 +586,7 @@ class WhisperTrayApp:
 
     def _transcribe_and_inject(self, audio, hwnd: int = 0, focus: int = 0) -> None:
         try:
+            pipeline_t0 = time.perf_counter()
             peak = _audio_peak(audio)
             if peak < _MIN_AUDIO_PEAK:
                 logger.info("recording too quiet peak=%.5f", peak)
@@ -618,21 +619,25 @@ class WhisperTrayApp:
             if not text:
                 if not self.transcriber.ready:
                     self._notify("Модель ещё загружается, подождите", "FreeScribe-AI")
-                    for _ in range(120):
-                        if self.transcriber.ready or self.transcriber.error:
-                            break
-                        time.sleep(1)
-                    if self.transcriber.error:
-                        raise RuntimeError(self.transcriber.error)
-                    if not self.transcriber.ready:
+                    if not self.transcriber.wait_until_ready(120.0):
+                        if self.transcriber.error:
+                            raise RuntimeError(self.transcriber.error)
                         raise RuntimeError("Модель не успела загрузиться")
+                t_tr = time.perf_counter()
                 text = self.transcriber.transcribe(audio, SAMPLE_RATE)
+                logger.info("transcribe phase %.2fs", time.perf_counter() - t_tr)
             if text and _is_junk_transcript(text):
                 logger.info("drop junk transcript: %s", text[:80])
                 text = ""
             if text:
+                t_inj = time.perf_counter()
                 self._inject_on_ui_thread(text, hwnd, focus)
-                logger.info("injected: %s", text[:80])
+                logger.info(
+                    "injected: %s (inject %.2fs, pipeline %.2fs)",
+                    text[:80],
+                    time.perf_counter() - t_inj,
+                    time.perf_counter() - pipeline_t0,
+                )
                 self._notify(text, "Распознано")
             else:
                 self._notify("Не удалось разобрать речь", "FreeScribe-AI")
